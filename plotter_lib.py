@@ -14,7 +14,7 @@ class Line:
   def __init__(self, start_point, pen=0):
     self._points = deque()
     self._points.append(start_point)
-		self._pen = pen
+    self._pen = pen
 
   def points(self):
     return self._points
@@ -38,11 +38,11 @@ class Line:
 
   def distance(self, other_line):
     other_point = other_line.points()[0]
-    return math.sqrt(math.pow(self._points[-1].x - other_point.x, 2) + 
+    return math.sqrt(math.pow(self._points[-1].x - other_point.x, 2) +
                      math.pow(self._points[-1].y - other_point.y, 2))
 
-	def pen(self):
-		return self._pen
+  def pen(self):
+    return self._pen
 
   def __repr__(self):
     return '\n[{:},{:} to {:},{:}, {:} points]'.format(
@@ -52,98 +52,98 @@ class Line:
 
 
 def _prepare_rtree(line_list):
-	p = rindex.Property()
-	p.leaf_capacity = 1000
-	p.variant = rindex.RT_Star
-	p.fill_factor = 0.02
-	
-	def points():
-		for index in range(len(line_list)):
-			offset_index = index + 1
-			line = line_list[index]
-			yield (offset_index, line.first_as_box(), None)
-			yield (offset_index * -1, line.last_as_box(), None)
+  p = rindex.Property()
+  p.leaf_capacity = 1000
+  p.variant = rindex.RT_Star
+  p.fill_factor = 0.02
 
-	rtree = rindex.Index(points(), properties=p)
-	return rtree
+  def points():
+    for index in range(len(line_list)):
+      offset_index = index + 1
+      line = line_list[index]
+      yield (offset_index, line.first_as_box(), None)
+      yield (offset_index * -1, line.last_as_box(), None)
+
+  rtree = rindex.Index(points(), properties=p)
+  return rtree
 
 
 def _sort(line_deque, merge_dist):
-	if not line_deque:
-		return None
+  if not line_deque:
+    return None
 
-	merge_dist_units = merge_dist / RESOLUTION
+  merge_dist_units = merge_dist / RESOLUTION
 
-	# bootstrap with first line.
-	sorted_lines = deque()
-	sorted_lines.append(line_deque[0])
+  # bootstrap with first line.
+  sorted_lines = deque()
+  sorted_lines.append(line_deque[0])
 
-	# copy to array for fast random access
-	line_array = list(line_deque)
-	rtree = _prepare_rtree(line_array[1:])
+  # copy to array for fast random access
+  line_array = list(line_deque)
+  rtree = _prepare_rtree(line_array[1:])
 
-	num_lines = len(line_array) - 1
-	for i in range(num_lines):
-		if i % 100 == 0:
-			print('{:} of {:}'.format(i, num_lines))
+  num_lines = len(line_array) - 1
+  for i in range(num_lines):
+    if i % 100 == 0:
+      print('{:} of {:}'.format(i, num_lines))
 
-		nearest_id = next(rtree.nearest(sorted_lines[-1].last_as_box()))
+    nearest_id = next(rtree.nearest(sorted_lines[-1].last_as_box()))
 
-		array_index = nearest_id
-		if array_index < 0:
-			array_index *= -1
-		nearest_line = line_array[array_index]
+    array_index = nearest_id
+    if array_index < 0:
+      array_index *= -1
+    nearest_line = line_array[array_index]
 
-		if nearest_id < 0:
-			rtree.delete(nearest_id, nearest_line.last_as_box())
-			rtree.delete(-1 * nearest_id, nearest_line.first_as_box())
-		else:
-			rtree.delete(nearest_id, nearest_line.first_as_box())
-			rtree.delete(-1 * nearest_id, nearest_line.last_as_box())
+    if nearest_id < 0:
+      rtree.delete(nearest_id, nearest_line.last_as_box())
+      rtree.delete(-1 * nearest_id, nearest_line.first_as_box())
+    else:
+      rtree.delete(nearest_id, nearest_line.first_as_box())
+      rtree.delete(-1 * nearest_id, nearest_line.last_as_box())
 
-		if nearest_id < 0:
-			nearest_line.reverse()
+    if nearest_id < 0:
+      nearest_line.reverse()
 
-		if sorted_lines[-1].distance(nearest_line) < merge_dist_units:
-			sorted_lines[-1].merge(nearest_line)
-		else:
-			sorted_lines.append(nearest_line)
-	return sorted_lines
+    if sorted_lines[-1].distance(nearest_line) < merge_dist_units:
+      sorted_lines[-1].merge(nearest_line)
+    else:
+      sorted_lines.append(nearest_line)
+  return sorted_lines
 
 
 def sort_all(mixed_shapes, merge_dist=0):
-	# Sort shapes by pen.
-	categorized_shapes = {}
-	sorted_shapes = {}
-	for shape in mixed_shapes:
-		pen = shape.pen
-		if not pen in categorized_shapes:
-			categorized_shapes[pen] = deque()
-		categorized_shapes[pen].append(shape)
-	
-	for pen, shape_list in categorized_shapes.items():
-		sorted_shapes[pen] = _sort(shape_list, merge_dist)
+  # Sort shapes by pen.
+  categorized_shapes = {}
+  sorted_shapes = {}
+  for shape in mixed_shapes:
+    pen = shape.pen
+    if not pen in categorized_shapes:
+      categorized_shapes[pen] = deque()
+    categorized_shapes[pen].append(shape)
 
-		print('pen %d' % pen)
-		print('starting length: %d' % len(shape_list))
-		print('ending length: %d' % len(sorted_shapes[pen]))
+  for pen, shape_list in categorized_shapes.items():
+    sorted_shapes[pen] = _sort(shape_list, merge_dist)
 
-	return sorted_shapes
+    print('pen %d' % pen)
+    print('starting length: %d' % len(shape_list))
+    print('ending length: %d' % len(sorted_shapes[pen]))
+
+  return sorted_shapes
 
 
 def write_shapes(shapes, outfile):
-	if not shapes:
-		return
+  if not shapes:
+    return
 
-	outfile.write('SP%d' % shapes[0].pen + 1)
+  outfile.write('SP%d' % shapes[0].pen + 1)
 
-	for line in shapes:
-		points = line.points()
-		first_point = True
-		for point in points:
-			if first_point:
-				outfile.write('PU%d,%d' % (point.x, point.y))
-				outfile.write('PD')
-				first_point = False
-			else:
-				outfile.write('%d,%d,' % (point.x, point.y))
+  for line in shapes:
+    points = line.points()
+    first_point = True
+    for point in points:
+      if first_point:
+        outfile.write('PU%d,%d' % (point.x, point.y))
+        outfile.write('PD')
+        first_point = False
+      else:
+        outfile.write('%d,%d,' % (point.x, point.y))
