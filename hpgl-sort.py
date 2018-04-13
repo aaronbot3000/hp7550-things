@@ -108,6 +108,8 @@ class PenParser:
       self._line_lists[self._current_pen][-1].add_points(points)
       self._last_position = points[-1]
       return
+		else:
+			print 'Unrecognized command: %s' % command
 
   def _prepare_rtree(self, line_list):
     p = rindex.Property()
