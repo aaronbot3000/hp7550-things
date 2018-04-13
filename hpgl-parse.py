@@ -1,10 +1,17 @@
 #!/usr/bin/python3
 
-from plotter_lib import Line
+from collections import deque
+import sys
+
+from plotter_lib import ClosedPolyline
+from plotter_lib import OpenPolyline
+from plotter_lib import Point
+from plotter_lib import PointDistance
+from plotter_lib import RESOLUTION
 from plotter_lib import sort_all
 from plotter_lib import write_shapes
 
-MERGE_DIST = 0.3  # mm
+MERGE_DIST = 0.3 / RESOLUTION
 
 
 class PenParser:
@@ -14,6 +21,9 @@ class PenParser:
     self._pen_down = False
     self._parameter_cleaner = str.maketrans(',+', '  ')
     self._all_shapes = []
+
+    self.open_counter = 0
+    self.closed_counter = 0
 
   def _split_point_list(self, argstring):
     cleaned_params = argstring.translate(self._parameter_cleaner)
@@ -32,8 +42,30 @@ class PenParser:
 
     return points
 
+  def _add_shape(self):
+    if (len(self._current_point_list) > 2 and
+        PointDistance(self._current_point_list[0],
+                      self._current_point_list[-1]) < MERGE_DIST):
+      new_shape = ClosedPolyline(self._current_point_list[1:],
+          self._current_pen)
+      self.closed_counter += 1
+    else:
+      new_shape = OpenPolyline(self._current_point_list, self._current_pen)
+      self.open_counter += 1
+    self._all_shapes.append(new_shape)
+
   def _parse(self, command, parameters):
-    if command == 'sp':
+    # End of the line.
+    if command != 'pd' and self._pen_down == True:
+      self._add_shape()
+
+    if command == 'lt':
+      if not parameters:
+        return
+      print('Attempted to change line type to %s.' % parameters)
+    elif command == 'in':
+      return
+    elif command == 'sp':
       new_pen = int(parameters) - 1
       if new_pen != self._current_pen:
         self._pen_down = False
@@ -56,14 +88,15 @@ class PenParser:
         
       if not self._pen_down:
         self._pen_down = True
-        new_line = Line(self._last_position, self._current_pen)
-        self._all_shapes.append(new_line)
 
-      self._all_shapes[-1].add_points(points)
+        self._current_point_list = []
+        self._current_point_list.append(self._last_position)
+
+      self._current_point_list.extend(points)
       self._last_position = points[-1]
       return
     else:
-      print 'Unrecognized command: %s' % command
+      print('Unrecognized command: %s' % command)
 
   def read_file(self, infile):
     while True:
@@ -90,6 +123,9 @@ class PenParser:
 
         self._parse(command, params)
 
+      if self._pen_down:
+        self._add_shape()
+
     return self._all_shapes
 
 
@@ -99,13 +135,16 @@ def main():
   with open(sys.argv[1], 'r') as source:
     all_shapes = parser.read_file(source)
 
-  sorted_shapes = sort_all(all_shapes(), MERGE_DIST)
+  print('Closed polygons: %d' % parser.closed_counter)
+  print('Open polygons: %d' % parser.open_counter)
+
+  sorted_shapes = sort_all(all_shapes, MERGE_DIST)
 
   with open(sys.argv[2], 'w') as dest:
     dest.write('IN')
 
     for _, shapes in sorted_shapes.items():
-      write_shapes(shapes, dest)
+      write_shapes(shapes, MERGE_DIST, dest)
 
     dest.write('PUSP0;\n')
 

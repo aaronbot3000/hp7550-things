@@ -1,114 +1,168 @@
 from collections import deque
 from collections import namedtuple
 from rtree import index as rindex
+import abc
 import itertools
-import sys
 import math
+import sys
 
 RESOLUTION = 0.025  # mm/quanta
 
 Point = namedtuple('Point', ['x', 'y'])
 
 
-class Line:
-  def __init__(self, start_point, pen=0):
+def GenerateRtreeIndex(shape_id, point_id):
+  return shape_id << 16 | point_id
+
+
+def GetShapeId(rtree_index):
+  return rtree_index >> 16
+
+
+def GetPointId(rtree_index):
+  return rtree_index & 0xFFFF
+
+
+def PointDistance(a, b):
+  return math.sqrt(math.pow(a.x - b.x, 2) + math.pow(a.y - b.y, 2))
+
+
+def PointToBox(point):
+  return (point.x, point.y, point.x, point.y)
+
+
+class Polyline(abc.ABC):
+  def __init__(self, points, pen=0):
     self._points = deque()
-    self._points.append(start_point)
+    self._points.extend(points)
     self._pen = pen
 
-  def points(self):
-    return self._points
+  @abc.abstractmethod
+  def BoxesForRtree(self, shape_id):
+    """Yield points as boxes for rtree."""
 
-  def first_as_box(self):
-    point = self._points[0]
-    return [point.x, point.y, point.x, point.y]
+  @abc.abstractmethod
+  def LastBox(self):
+    """Return last point in this polyline as a box."""
 
-  def last_as_box(self):
-    point = self._points[-1]
-    return [point.x, point.y, point.x, point.y]
+  @abc.abstractmethod
+  def Points(self):
+    """Yield points."""
 
-  def reverse(self):
-    self._points.reverse()
+  @abc.abstractmethod
+  def StartWith(self, point_id):
+    """Rearranges points to start with this point id."""
 
-  def merge(self, other_line):
-    self._points.extend(other_line.points())
-
-  def add_points(self, list_of_points):
-    self._points.extend(list_of_points)
-
-  def distance(self, other_line):
-    other_point = other_line.points()[0]
-    return math.sqrt(math.pow(self._points[-1].x - other_point.x, 2) +
-                     math.pow(self._points[-1].y - other_point.y, 2))
-
-  def pen(self):
+  def Pen(self):
     return self._pen
 
-  def __repr__(self):
-    return '\n[{:},{:} to {:},{:}, {:} points]'.format(
-      self._points[0].x, self._points[0].y,
-      self._points[-1].x, self._points[-1].y,
-      len(self._points))
+
+class ClosedPolyline(Polyline):
+  def __init__(self, points, pen):
+    super().__init__(points, pen)
+    self._start = 0
+
+  def BoxesForRtree(self, shape_id):
+    for i in range(len(self._points)):
+      point = self._points[i]
+      yield (
+        GenerateRtreeIndex(shape_id, i),
+        PointToBox(point),
+        None)
+
+  def StartWith(self, point_id):
+    self._start = point_id
+
+  def Points(self):
+    modifier = 0
+    if len(self._points) > 2:
+      modifier = 1
+    for i in range(len(self._points) + modifier):
+      index = (i + self._start) % len(self._points)
+      yield self._points[index]
+
+  def LastBox(self):
+    last_index = (len(self._points) + self._start - 1) % len(self._points)
+    return PointToBox(self._points[last_index])
 
 
-def _prepare_rtree(line_list):
+class OpenPolyline(Polyline):
+  def __init__(self, points, pen):
+    super().__init__(points, pen)
+    self._forward_direction = True
+
+  def BoxesForRtree(self, shape_id):
+    yield (GenerateRtreeIndex(shape_id, 0), PointToBox(self._points[0]), None)
+    yield (GenerateRtreeIndex(shape_id, 1), PointToBox(self._points[-1]), None)
+
+  def StartWith(self, point_id):
+    if point_id == 0:
+      self._forward_direction = True
+    else:
+      self._forward_direction = False
+
+  def Points(self):
+    if self._forward_direction:
+      for point in self._points:
+        yield point
+    else:
+      for point in reversed(self._points):
+        yield point
+
+  def LastBox(self):
+    if self._forward_direction:
+      return PointToBox(self._points[0])
+    else:
+      return PointToBox(self._points[-1])
+
+
+def _PrepareRtree(shape_list):
   p = rindex.Property()
   p.leaf_capacity = 1000
   p.variant = rindex.RT_Star
   p.fill_factor = 0.02
 
-  def points():
-    for index in range(len(line_list)):
-      offset_index = index + 1
-      line = line_list[index]
-      yield (offset_index, line.first_as_box(), None)
-      yield (offset_index * -1, line.last_as_box(), None)
+  def Points():
+    for shape_id in range(len(shape_list)):
+      shape = shape_list[shape_id]
+      for box in shape.BoxesForRtree(shape_id):
+        yield box
 
-  rtree = rindex.Index(points(), properties=p)
+  rtree = rindex.Index(Points(), properties=p)
   return rtree
 
 
-def _sort(line_deque, merge_dist):
-  if not line_deque:
+def _Sort(shape_deque, merge_dist):
+  if not shape_deque:
     return None
 
   merge_dist_units = merge_dist / RESOLUTION
 
   # bootstrap with first line.
-  sorted_lines = deque()
-  sorted_lines.append(line_deque[0])
+  sorted_shapes = deque()
+  sorted_shapes.append(shape_deque[0])
 
   # copy to array for fast random access
-  line_array = list(line_deque)
-  rtree = _prepare_rtree(line_array[1:])
+  shape_array = list(shape_deque)
+  rtree = _PrepareRtree(shape_array[1:])
 
-  num_lines = len(line_array) - 1
-  for i in range(num_lines):
-    if i % 100 == 0:
-      print('{:} of {:}'.format(i, num_lines))
+  num_shapes = len(shape_array) - 1
+  for i in range(num_shapes):
+    if i % 500 == 0:
+      print('{:} of {:}'.format(i, num_shapes))
 
-    nearest_id = next(rtree.nearest(sorted_lines[-1].last_as_box()))
+    rtree_id = next(rtree.nearest(sorted_shapes[-1].LastBox()))
+    shape_id = GetShapeId(rtree_id)
 
-    array_index = nearest_id
-    if array_index < 0:
-      array_index *= -1
-    nearest_line = line_array[array_index]
+    nearest_shape = shape_array[shape_id]
+    nearest_shape.StartWith(GetPointId(rtree_id))
 
-    if nearest_id < 0:
-      rtree.delete(nearest_id, nearest_line.last_as_box())
-      rtree.delete(-1 * nearest_id, nearest_line.first_as_box())
-    else:
-      rtree.delete(nearest_id, nearest_line.first_as_box())
-      rtree.delete(-1 * nearest_id, nearest_line.last_as_box())
+    sorted_shapes.append(nearest_shape)
 
-    if nearest_id < 0:
-      nearest_line.reverse()
+    for id, box, _ in nearest_shape.BoxesForRtree(shape_id):
+      rtree.delete(id, box)
 
-    if sorted_lines[-1].distance(nearest_line) < merge_dist_units:
-      sorted_lines[-1].merge(nearest_line)
-    else:
-      sorted_lines.append(nearest_line)
-  return sorted_lines
+  return sorted_shapes
 
 
 def sort_all(mixed_shapes, merge_dist=0):
@@ -116,34 +170,35 @@ def sort_all(mixed_shapes, merge_dist=0):
   categorized_shapes = {}
   sorted_shapes = {}
   for shape in mixed_shapes:
-    pen = shape.pen
+    pen = shape.Pen()
     if not pen in categorized_shapes:
       categorized_shapes[pen] = deque()
     categorized_shapes[pen].append(shape)
 
   for pen, shape_list in categorized_shapes.items():
-    sorted_shapes[pen] = _sort(shape_list, merge_dist)
-
-    print('pen %d' % pen)
-    print('starting length: %d' % len(shape_list))
-    print('ending length: %d' % len(sorted_shapes[pen]))
+    sorted_shapes[pen] = _Sort(shape_list, merge_dist)
 
   return sorted_shapes
 
 
-def write_shapes(shapes, outfile):
+def write_shapes(shapes, merge_dist, outfile):
   if not shapes:
     return
 
-  outfile.write('SP%d' % shapes[0].pen + 1)
+  outfile.write('SP%d' % (shapes[0].Pen() + 1))
 
-  for line in shapes:
-    points = line.points()
-    first_point = True
-    for point in points:
-      if first_point:
-        outfile.write('PU%d,%d' % (point.x, point.y))
-        outfile.write('PD')
-        first_point = False
+  last_point = None
+  for shape in shapes:
+    point_counter = 0
+    for point in shape.Points():
+      if point_counter == 0:
+        if (last_point is None or
+            PointDistance(point, last_point) > merge_dist):
+          outfile.write('PU%d,%d' % (point.x, point.y))
+          outfile.write('PD')
+      elif point_counter == 1:
+        outfile.write('%d,%d' % (point.x, point.y))
       else:
-        outfile.write('%d,%d,' % (point.x, point.y))
+        outfile.write(',%d,%d' % (point.x, point.y))
+      point_counter += 1
+      last_point = point
