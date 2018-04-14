@@ -8,10 +8,11 @@ from plotter_lib import OpenPolyline
 from plotter_lib import Point
 from plotter_lib import PointDistance
 from plotter_lib import RESOLUTION
-from plotter_lib import sort_all
-from plotter_lib import write_shapes
+from plotter_lib import SortAllAndWrite
+from plotter_lib import Label
+from plotter_lib import Square
 
-MERGE_DIST = 0.3 / RESOLUTION
+MERGE_DIST = 0.3 / RESOLUTION  # input in mm
 
 
 class PenParser:
@@ -66,7 +67,7 @@ class PenParser:
     elif command == 'in':
       return
     elif command == 'sp':
-      new_pen = int(parameters) - 1
+      new_pen = int(parameters)
       if new_pen != self._current_pen:
         self._pen_down = False
         self._current_pen = new_pen
@@ -138,15 +139,8 @@ def main():
   print('Closed polygons: %d' % parser.closed_counter)
   print('Open polygons: %d' % parser.open_counter)
 
-  sorted_shapes = sort_all(all_shapes, MERGE_DIST)
-
   with open(sys.argv[2], 'w') as dest:
-    dest.write('IN')
-
-    for _, shapes in sorted_shapes.items():
-      write_shapes(shapes, MERGE_DIST, dest)
-
-    dest.write('PUSP0;\n')
+    SortAllAndWrite(dest, all_shapes, MERGE_DIST)
 
 if __name__ == "__main__":
   main()
