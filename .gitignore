@@ -1,4 +1,5 @@
 *.plt
 *.png
 *.hpgl
+*.pyc
 __pycache__

@@ -1,3 +1,4 @@
+#!/usr/bin/python3
 from collections import deque
 import math
 import random
@@ -7,6 +8,7 @@ from plotter_lib import Label
 from plotter_lib import Point
 from plotter_lib import SortAllAndWrite
 from plotter_lib import Square
+from plotter_lib import ShowPreview
 
 # 10 inch page width (cols)
 # 15.684 inch page height (rows)
@@ -43,7 +45,12 @@ def main():
       shapes.append(Square(side, Point(x_pos, y_pos), phi, pen))
 
   shapes.append(
-      Label('SYMBOLIC DISARRAY', Point(15900, 1016), (1, 0.5), math.pi / 2, 1))
+      Label('SYMBOLIC DISARRAY', Point(15900, 1016), (0.5, 0.5), math.pi / 2, 1))
+
+  # BGR color
+  pen_map = {1: (0, 0, 0), 2: (0, 0, 255)}
+  if not ShowPreview(shapes, 'tabloid', pen_map):
+    return 0
 
   with open(sys.argv[1], 'w') as dest:
     SortAllAndWrite(dest, shapes, 0.3)

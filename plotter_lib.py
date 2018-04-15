@@ -6,8 +6,10 @@ from collections import deque
 from collections import namedtuple
 from rtree import index as rindex
 import abc
+import cv2
 import itertools
 import math
+import numpy as np
 import sys
 
 RESOLUTION = 0.025  # mm/quanta
@@ -56,6 +58,10 @@ class Shape(abc.ABC):
   def Chainable(self):
     """Whether this operation leaves the pen down for chaining operations."""
 
+  @abc.abstractmethod
+  def DrawIn(self, image, pen_map, scale):
+    """Draw this shape in the given array."""
+
   def Pen(self):
     return self._pen
 
@@ -73,6 +79,8 @@ class Label(Shape):
     self._start_position = start_position
     self._size = size
     self._angle = angle
+
+    self._last_point = self.GenerateLastPoint()
     
     global _NEXT_RTREE_ID
     self._id = _NEXT_RTREE_ID
@@ -80,7 +88,7 @@ class Label(Shape):
 
   def WriteToFile(self, outfile, _):
     outfile.write('PU%d,%d' % (self._start_position.x, self._start_position.y))
-    outfile.write('SI%d,%d' % (self._size[0], self._size[1]))
+    outfile.write('SI%.3f,%.3f' % (self._size[0], self._size[1]))
     run = math.cos(self._angle)
     rise = math.sin(self._angle)
     outfile.write('DI%.3f,%.3f' % (run, rise))
@@ -89,10 +97,10 @@ class Label(Shape):
   def FirstPoint(self):
     return self._start_position
 
-  def LastPoint(self):
+  def GenerateLastPoint(self):
     cm_to_quanta = 100 / RESOLUTION
 
-    length = len(self._text) * self._size[0] * cm_to_quanta
+    length = len(self._text) * self._size[0] * cm_to_quanta * 1.5
     height = self._size[1] * cm_to_quanta
 
     # Consider the length of the string.
@@ -104,6 +112,9 @@ class Label(Shape):
     rise += int(math.sin(self._angle + math.pi / 2) * height / 2)
 
     return Point(self._start_position.x + run, self._start_position.y + rise)
+
+  def LastPoint(self):
+    return self._last_point
 
   def BoxesForRtree(self, shape_id):
     yield (self._id,
@@ -135,6 +146,15 @@ class Polyline(Shape):
 
   def Chainable(self):
     return True
+
+  def DrawIn(self, image, pen_map, scale):
+    all_points = deque()
+    for point in self.Points():
+      all_points.append([int(point.x * scale),
+                         int(point.y * scale)])
+    np_points = np.array(all_points, np.int32)
+    np_points = np_points.reshape((-1, 1, 2))
+    cv2.polylines(image, [np_points], False, pen_map[self._pen])
 
 
 class ClosedPolyline(Polyline):
@@ -338,3 +358,43 @@ def WriteAllShapes(outfile, sorted_shapes, merge_dist):
 def SortAllAndWrite(outfile, mixed_shapes, merge_dist):
   all_sorted = SortAll(mixed_shapes)
   WriteAllShapes(outfile, all_sorted, merge_dist)
+
+PREVIEW_X = 1081  # pixels
+
+LETTER_X = 10 * 1016  # points
+LETTER_Y = 8.154 * 1016  # points
+
+TABLOID_X = 15.684 * 1016  # points
+TABLOID_Y = 10 * 1016  # points
+
+def ShowPreview(mixed_shapes, page_size, pen_map):
+  if page_size == 'letter':
+    scale = PREVIEW_X / LETTER_X
+    preview_y = int(LETTER_Y * scale)
+  elif page_size == 'tabloid':
+    scale = PREVIEW_X / TABLOID_X
+    preview_y = int(TABLOID_Y * scale)
+  else:
+    assert 'Bruh you typoed page size: %s' % page_size
+
+  preview_dims = (preview_y, PREVIEW_X, 3)
+  image = np.ones(preview_dims, np.uint8) * 255
+
+  for shape in mixed_shapes:
+    shape.DrawIn(image, pen_map, scale)
+
+  cv2.namedWindow('Preview', cv2.WINDOW_AUTOSIZE)
+  cv2.imshow('Preview', image)
+
+  return_value = False
+  while True:
+    key = cv2.waitKey(0)
+    print(key)
+    if key == 1048586:
+      return_value = True
+      break;
+    elif key == -1 or key == 1048603 or key == 1048689:
+      break
+
+  cv2.destroyAllWindows()
+  return return_value
