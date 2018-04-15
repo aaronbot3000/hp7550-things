@@ -9,8 +9,6 @@ from plotter_lib import Point
 from plotter_lib import PointDistance
 from plotter_lib import RESOLUTION
 from plotter_lib import SortAllAndWrite
-from plotter_lib import Label
-from plotter_lib import Square
 
 MERGE_DIST = 0.3 / RESOLUTION  # input in mm
 

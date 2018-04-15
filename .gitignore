@@ -1,3 +1,4 @@
 *.plt
 *.png
+*.hpgl
 __pycache__
