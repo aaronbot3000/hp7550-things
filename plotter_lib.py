@@ -81,9 +81,9 @@ class Label(Shape):
   def WriteToFile(self, outfile, _):
     outfile.write('PU%d,%d' % (self._start_position.x, self._start_position.y))
     outfile.write('SI%d,%d' % (self._size[0], self._size[1]))
-    run = int(math.cos(self._angle) * 32767)
-    rise = int(math.sin(self._angle) * 32767)
-    outfile.write('DI%d,%d' % (run, rise))
+    run = math.cos(self._angle)
+    rise = math.sin(self._angle)
+    outfile.write('DI%.3f,%.3f' % (run, rise))
     outfile.write('LB%s\3' % self._text)
 
   def FirstPoint(self):
@@ -221,9 +221,9 @@ class Square(ClosedPolyline):
     half = length / 2.0
 
     def RotX(x, y):
-      return x * math.cos(rotation) - y * math.sin(rotation)
+      return int(x * math.cos(rotation) - y * math.sin(rotation))
     def RotY(x, y):
-      return x * math.sin(rotation) + y * math.cos(rotation)
+      return int(x * math.sin(rotation) + y * math.cos(rotation))
 
     points = []
     points.append(Point(RotX(-1 * half, -1 * half) + center.x,
@@ -277,7 +277,7 @@ def _Sort(shape_deque):
   num_shapes = len(shape_array) - 1
   for i in range(num_shapes):
     if i % 500 == 0:
-      print('{:} of {:}'.format(i, num_shapes))
+      print('Sorted %d of %d.' % (i, num_shapes))
 
     nearest = next(rtree.nearest(sorted_shapes[-1].LastBox(), objects='raw'))
     shape_id = nearest[0]
