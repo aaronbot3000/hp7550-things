@@ -6,12 +6,14 @@ import sys
 
 from plotter_lib import Label
 from plotter_lib import Point
+from plotter_lib import ShowPreview
 from plotter_lib import SortAllAndWrite
 from plotter_lib import Square
-from plotter_lib import ShowPreview
 
 # 10 inch page width (cols)
 # 15.684 inch page height (rows)
+
+random.seed(0)
 
 def main():
   shapes = deque()
@@ -53,7 +55,7 @@ def main():
     return 0
 
   with open(sys.argv[1], 'w') as dest:
-    SortAllAndWrite(dest, shapes, 0.3)
+    SortAllAndWrite(dest, shapes, 0.3, 'tabloid')
 
 if __name__ == "__main__":
   main()

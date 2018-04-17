@@ -3,14 +3,14 @@
 from collections import deque
 import sys
 
+import plotter_lib
 from plotter_lib import ClosedPolyline
 from plotter_lib import OpenPolyline
 from plotter_lib import Point
 from plotter_lib import PointDistance
-from plotter_lib import RESOLUTION
 from plotter_lib import SortAllAndWrite
 
-MERGE_DIST = 0.3 / RESOLUTION  # input in mm
+kMergeDistance = 0.3 / plotter_lib.kResolution  # input in mm
 
 
 class PenParser:
@@ -44,7 +44,7 @@ class PenParser:
   def _add_shape(self):
     if (len(self._current_point_list) > 2 and
         PointDistance(self._current_point_list[0],
-                      self._current_point_list[-1]) < MERGE_DIST):
+                      self._current_point_list[-1]) < kMergeDistance):
       new_shape = ClosedPolyline(self._current_point_list[1:],
           self._current_pen)
       self.closed_counter += 1
@@ -61,7 +61,7 @@ class PenParser:
     if command == 'lt':
       if not parameters:
         return
-      print('Attempted to change line type to %s.' % parameters)
+      print('Attempted to change line type with parameters %s.' % parameters)
     elif command == 'in':
       return
     elif command == 'sp':
@@ -137,8 +137,11 @@ def main():
   print('Closed polygons: %d' % parser.closed_counter)
   print('Open polygons: %d' % parser.open_counter)
 
-  with open(sys.argv[2], 'w') as dest:
-    SortAllAndWrite(dest, all_shapes, MERGE_DIST)
+  with open(sys.argv[2], 'wb') as dest:
+    if len(sys.argv) == 4 and sys.argv[3] == 'letter':
+      SortAllAndWrite(dest, all_shapes, kMergeDistance, 'letter')
+    else:
+      SortAllAndWrite(dest, all_shapes, kMergeDistance, 'tabloid')
 
 if __name__ == "__main__":
   main()
