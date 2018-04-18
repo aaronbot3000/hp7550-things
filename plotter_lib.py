@@ -279,7 +279,8 @@ class Polyline(Shape):
     digits.append(number + 191)
     return bytes(digits)
 
-  def WriteToFile(self, outfile, need_traverse, letter_offset):
+  def WriteToFile(self, outfile, need_traverse, letter_offset,
+                  chain_previous=False):
     yoffset = 0
     if letter_offset:
       yoffset = kLetterYOffset
@@ -289,26 +290,20 @@ class Polyline(Shape):
     last_point = None
     for point in self.Points():
       if last_point is None:
-        x = self._Encode(point.x)
-        y = self._Encode(point.y + yoffset)
         if need_traverse:
-          outfile.write(b'PE<=')
-          outfile.write(x)
-          outfile.write(y)
-          outfile.write(zero)
-          outfile.write(zero)
+          if chain_previous:
+            outfile.write(b';')
+          outfile.write(b'PU%d,%dPE' % (point.x, point.y + yoffset))
         else:
-          outfile.write(b'PE=')
-          outfile.write(x)
-          outfile.write(y)
+          if not chain_previous:
+            outfile.write(b'PE')
+          outfile.write(b'=')
+          outfile.write(self._Encode(point.x))
+          outfile.write(self._Encode(point.y + yoffset))
       else:
-        x = self._Encode(point.x - last_point.x)
-        y = self._Encode(point.y - last_point.y)
-        outfile.write(x)
-        outfile.write(y)
+        outfile.write(self._Encode(point.x - last_point.x))
+        outfile.write(self._Encode(point.y - last_point.y))
       last_point = point
-
-    outfile.write(b';')
 
   def Chainable(self):
     return True
@@ -417,9 +412,6 @@ class Square(ClosedPolyline):
     super().__init__(points, pen)
 
 
-all_ids = set()
-all_box = set()
-
 def _PrepareRtree(shape_list):
   p = rindex.Property()
   p.leaf_capacity = 1000
@@ -430,8 +422,6 @@ def _PrepareRtree(shape_list):
     for shape_id in range(1, len(shape_list)):
       shape = shape_list[shape_id]
       for box in shape.BoxesForRtree(shape_id):
-        all_ids.add(box[0])
-        all_box.add(box[1])
         yield box
 
   rtree = rindex.Index(Points(), properties=p)
@@ -474,20 +464,22 @@ def _Sort(shape_deque):
   return sorted_shapes
 
 
-def SortAll(mixed_shapes):
+def SortAll(mixed_shapes, reorder=True):
   # Sort shapes by pen.
   categorized_shapes = {}
-  sorted_shapes = {}
   for shape in mixed_shapes:
     pen = shape.Pen()
     if not pen in categorized_shapes:
       categorized_shapes[pen] = deque()
     categorized_shapes[pen].append(shape)
 
-  for pen, shape_list in categorized_shapes.items():
-    sorted_shapes[pen] = _Sort(shape_list)
-
-  return sorted_shapes
+  if reorder:
+    sorted_shapes = {}
+    for pen, shape_list in categorized_shapes.items():
+      sorted_shapes[pen] = _Sort(shape_list)
+    return sorted_shapes
+  else:
+    return categorized_shapes
 
 
 def WriteShapes(outfile, pen, shapes, merge_dist, page_size):
@@ -496,19 +488,33 @@ def WriteShapes(outfile, pen, shapes, merge_dist, page_size):
 
   outfile.write(b'SP%d' % pen)
 
+  previous_was_polyline = False
   last_point = None
   need_traverse = True
 
   for shape in shapes:
     need_traverse = (last_point is None or
         PointDistance(last_point, shape.FirstPoint()) > merge_dist)
+    need_letter_offset = page_size == 'letter'
+    current_is_polyline = issubclass(type(shape), Polyline)
 
-    shape.WriteToFile(outfile, need_traverse, page_size == 'letter')
+    if previous_was_polyline and current_is_polyline:
+      shape.WriteToFile(outfile, need_traverse, need_letter_offset,
+                        chain_previous=True)
+    else:
+      if previous_was_polyline:
+        outfile.write(b';')
+      shape.WriteToFile(outfile, need_traverse, need_letter_offset)
 
     if shape.Chainable():
       last_point = shape.LastPoint()
     else:
       last_point = None
+    previous_was_polyline = current_is_polyline
+
+  if previous_was_polyline:
+    outfile.write(b';')
+
 
 def WriteAllShapes(outfile, sorted_shapes, merge_dist, page_size):
   outfile.write(b'IN')
@@ -516,11 +522,11 @@ def WriteAllShapes(outfile, sorted_shapes, merge_dist, page_size):
     WriteShapes(outfile, pen, shapes, merge_dist, page_size)
   outfile.write(b'PUSP0;\n')
 
-def SortAllAndWrite(outfile, mixed_shapes, merge_dist, page_size):
-  all_sorted = SortAll(mixed_shapes)
+def SortAllAndWrite(outfile, mixed_shapes, merge_dist, page_size, reorder=True):
+  all_sorted = SortAll(mixed_shapes, reorder)
   WriteAllShapes(outfile, all_sorted, merge_dist, page_size)
 
-PREVIEW_X = 1081  # pixels
+PREVIEW_X = 1200  # pixels
 
 def ShowPreview(mixed_shapes, page_size, pen_map):
   if page_size == 'letter':
