@@ -13,7 +13,7 @@ from plotter_lib import Square
 # 10 inch page width (cols)
 # 15.684 inch page height (rows)
 
-random.seed(0)
+random.seed(1)
 
 def main():
   shapes = deque()
@@ -38,23 +38,22 @@ def main():
       rand_x = random.uniform(-1 * trans_range, trans_range)
       rand_y = random.uniform(-1 * trans_range, trans_range)
       if random.random() < red_thresh:
-        pen = 2
-      else:
         pen = 1
+      else:
+        pen = 0
 
       x_pos = x_offset + side * r + rand_x
       y_pos = y_offset + side * c + rand_y
       shapes.append(Square(side, Point(x_pos, y_pos), phi, pen))
 
   shapes.append(
-      Label('SYMBOLIC DISARRAY', Point(15900, 1016), (0.5, 0.5), math.pi / 2, 1))
+      Label('SYMBOLIC DISARRAY', Point(15900, 1016), (0.25, 0.25), math.pi / 2, 1))
 
-  # BGR color
-  pen_map = {1: (0, 0, 0), 2: (0, 0, 255)}
+  pen_map = [(0, 0, 0), (255, 0, 0)]
   if not ShowPreview(shapes, 'tabloid', pen_map):
     return 0
 
-  with open(sys.argv[1], 'w') as dest:
+  with open(sys.argv[1], 'wb') as dest:
     SortAllAndWrite(dest, shapes, 0.3, 'tabloid')
 
 if __name__ == "__main__":

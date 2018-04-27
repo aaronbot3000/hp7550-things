@@ -6,6 +6,7 @@ from collections import deque
 from collections import namedtuple
 from rtree import index as rindex
 import abc
+import copy
 import cv2
 import itertools
 import math
@@ -22,7 +23,21 @@ kTabloidX = int(15.684 * 1016)  # points
 kTabloidY = 10 * 1016  # points
 
 
-Point = namedtuple('Point', ['x', 'y'])
+class Point(object):
+  def __init__(self, x, y):
+    self.x = x
+    self.y = y
+
+  def __copy__(self):
+    return type(self)(self.x, self.y)
+
+
+class PenState(object):
+  def __init__(self, position, position_exact, pen_is_up, last_operation=None):
+    self.position = position
+    self.position_exact = position_exact
+    self.pen_is_up = pen_is_up
+    self.last_operation = last_operation
 
 
 def PointDistance(a, b):
@@ -49,7 +64,11 @@ class Shape(abc.ABC):
 
     global _NEXT_RTREE_ID
     self._id = _NEXT_RTREE_ID
+    self._letter_offset = False
     _NEXT_RTREE_ID += self.NumberOfRtreeIdsConsumed()
+
+  def SetLetterOffset(self, letter_offset):
+    self._letter_offset = letter_offset
 
   @abc.abstractmethod
   def NumberOfRtreeIdsConsumed(self):
@@ -71,7 +90,7 @@ class Shape(abc.ABC):
     return PointToBox(self.LastPoint())
 
   @abc.abstractmethod
-  def WriteToFile(self, outfile, need_traverse, letter_offset):
+  def WriteToFile(self, outfile, pen_state, merge_dist):
     """Write this shape to file."""
 
   @abc.abstractmethod
@@ -89,6 +108,94 @@ class Shape(abc.ABC):
   def Pen(self):
     return self._pen
 
+  def _MoveToStartPenUp(self, outfile, pen_state):
+    start_point = self.FirstPoint()
+
+    yoffset = 0
+    if self._letter_offset:
+      yoffset = kLetterYOffset
+
+    pen_state.pen_is_up = True
+
+    if pen_state.position is None:
+      outfile.write(b'PU%d%+d' % (self._start_position.x,
+                                  self._start_position.y + yoffset))
+      pen_state.last_operation = 'PU'
+      return pen_state
+
+    x = self._start_position.x - pen_state.position.x
+    y = self._start_position.y - pen_state.position.y
+
+
+    if not pen_state.pen_is_up:
+      outfile.write(b'PU')
+      pen_state.last_operation = 'PU'
+
+    if x != 0 or y != 0:
+      outfile.write(b'PR%d%+d' % (x, y))
+      pen_state.last_operation = 'PR'
+
+
+  def _MoveToStartPenDown(self, outfile, pen_state, merge_dist):
+    start_point = self.FirstPoint()
+
+    yoffset = 0
+    if self._letter_offset:
+      yoffset = kLetterYOffset
+
+    pen_state.pen_is_up = False
+    if pen_state.position is None:
+      outfile.write(b'PU%d%+dPD' % (start_point.x, start_point.y + yoffset))
+      pen_state.last_operation = 'PD'
+      return pen_state
+
+    x = start_point.x - pen_state.position.x
+    y = start_point.y - pen_state.position.y
+
+    if x == 0 and y == 0:
+      if pen_state.pen_is_up:
+        outfile.write(b'PD')
+        pen_state.last_operation = 'PD'
+      return pen_state
+
+    if (self.Chainable() and
+        PointDistance(pen_state.position, start_point) < merge_dist):
+      if pen_state.position_exact:
+        if pen_state.pen_is_up:
+          outfile.write(b'PD')
+          pen_state.last_operation = 'PD'
+        if pen_state.last_operation == 'PR':
+          outfile.write(b'%+d%+d' % (x, y))
+        else:
+          outfile.write(b'PR%d%+d' % (x, y))
+          pen_state.last_operation = 'PR'
+      else:
+        if pen_state.last_operation == 'PD':
+          outfile.write(b'%+d%+d' % (start_point.x, start_point.y + yoffset))
+        else:
+          outfile.write(b'PD%d%+d' % (start_point.x, start_point.y + yoffset))
+          pen_state.last_operation = 'PD'
+    else:
+      if pen_state.position_exact:
+        if not pen_state.pen_is_up:
+          outfile.write(b'PU')
+          pen_state.last_operation = 'PU'
+        if pen_state.last_operation == 'PR':
+          outfile.write(b'%+d%+dPD' % (x, y))
+          pen_state.last_operation = 'PD'
+        else:
+          outfile.write(b'PR%d%+dPD' % (x, y))
+          pen_state.last_operation = 'PD'
+      else:
+        if pen_state.last_operation == 'PU':
+          outfile.write(b'%+d%+dPD' % (start_point.x, start_point.y + yoffset))
+        else:
+          outfile.write(b'PU%d%+dPD' % (start_point.x, start_point.y + yoffset))
+        pen_state.last_operation = 'PD'
+
+    pen_state.pen_is_up = False
+    return pen_state
+
 
 class Label(Shape):
   def __init__(self, text, start_position, size, angle, pen):
@@ -99,7 +206,7 @@ class Label(Shape):
     angle in radians.
     """
     self._text = text
-    self._start_position = start_position
+    self._start_position = copy.copy(start_position)
     self._size = size
     self._angle = angle
     self._last_point = self.GenerateLastPoint()
@@ -108,19 +215,20 @@ class Label(Shape):
   def NumberOfRtreeIdsConsumed(self):
     return 1
 
-  def WriteToFile(self, outfile, _, letter_offset):
-    yoffset = 0
-    if letter_offset:
-      yoffset = kLetterYOffset
-
-    outfile.write(b'PU%d,%d' % (self._start_position.x,
-                               self._start_position.y + yoffset))
-
+  def WriteToFile(self, outfile, pen_state, _):
+    self._MoveToStartPenUp(outfile, pen_state)
     outfile.write(b'SI%.2f,%.2f' % (self._size[0], self._size[1]))
     run = math.cos(self._angle)
     rise = math.sin(self._angle)
-    outfile.write(b'DI%.2f,%.2f' % (run, rise))
-    outfile.write(b'LB%s\3' % self._text)
+    outfile.write(b'DI%.2f%+.2f' % (run, rise))
+    outfile.write(b'LB')
+    outfile.write(bytes(self._text, encoding='ascii'))
+    outfile.write(b'\3')
+
+    return PenState(position=None,
+                    position_exact=False,
+                    pen_is_up=True,
+                    last_operation='LB')
 
   def FirstPoint(self):
     return self._start_position
@@ -166,7 +274,7 @@ class Arc(Shape):
     start: angle it starts the arc. negative is ok
       0 degrees is positive X axis, counterclockwise.. Enter None for random.
     """
-    self._center = center
+    self._center = copy.copy(center)
     self._start = start
     self._radius = diameter / 2.0
     self._sweep = sweep
@@ -178,28 +286,28 @@ class Arc(Shape):
   def NumberOfRtreeIdsConsumed(self):
     return 2
 
-  def WriteToFile(self, outfile, need_traverse, letter_offset):
+  def WriteToFile(self, outfile, pen_state, merge_dist):
     start_point = self.FirstPoint()
-
-    yoffset = 0
-    if letter_offset:
-      yoffset = kLetterYOffset
 
     if self._forward_direction:
       sweep = self._sweep
     else:
       sweep = -1 * self._sweep
 
-    if need_traverse:
-      outfile.write(b'PU%d,%dPD' % (start_point.x, start_point.y + yoffset))
-    else:
-      outfile.write(b'PD%d,%d' % (start_point.x, start_point.y + yoffset))
+    self._MoveToStartPenDown(outfile, pen_state, merge_dist)
 
-    outfile.write(b'AA%d,%d,%.2f' %
-        (self._center.x, self._center.y + yoffset, np.degrees(sweep)))
+    cx = self._center.x - start_point.x
+    cy = self._center.y - start_point.y
+    outfile.write(b'AR%d%+d%+.2f' %
+        (cx, cy, np.degrees(sweep)))
 
     if self._chord is not None:
-      outfile.write(b',%d' % np.degrees(self._chord))
+      outfile.write(b'%+d' % np.degrees(self._chord))
+
+    return PenState(self.LastPoint(),
+                    position_exact=False,
+                    pen_is_up=False,
+                    last_operation='AR')
 
   def FirstPoint(self):
     if self._forward_direction:
@@ -241,7 +349,7 @@ class Arc(Shape):
     return True
 
   def DrawIn(self, image, pen_map, scale):
-    chord = 5
+    chord = 2 * math.pi / 20
     if self._chord is not None:
       chord = self._chord
 
@@ -255,7 +363,8 @@ class Arc(Shape):
     cv2.polylines(image,
         [polyline],
         False,
-        pen_map[self._pen])
+        pen_map[self._pen],
+        thickness=3)
 
 
 class Polyline(Shape):
@@ -279,31 +388,45 @@ class Polyline(Shape):
     digits.append(number + 191)
     return bytes(digits)
 
-  def WriteToFile(self, outfile, need_traverse, letter_offset,
-                  chain_previous=False):
-    yoffset = 0
-    if letter_offset:
-      yoffset = kLetterYOffset
+  def WriteToFile(self, outfile, pen_state, merge_dist):
+    pen_state = self._MoveToStartPenDown(outfile, pen_state, merge_dist)
 
-    zero = self._Encode(0)
-
-    last_point = None
+    previous_point = None
+    point_counter = 0
     for point in self.Points():
-      if last_point is None:
-        if need_traverse:
-          if chain_previous:
-            outfile.write(b';')
-          outfile.write(b'PU%d,%dPE' % (point.x, point.y + yoffset))
-        else:
-          if not chain_previous:
-            outfile.write(b'PE')
-          outfile.write(b'=')
-          outfile.write(self._Encode(point.x))
-          outfile.write(self._Encode(point.y + yoffset))
+      if previous_point is None:
+        if pen_state.last_operation != 'PR':
+          outfile.write(b'PR')
       else:
-        outfile.write(self._Encode(point.x - last_point.x))
-        outfile.write(self._Encode(point.y - last_point.y))
-      last_point = point
+        x = point.x - previous_point.x
+        y = point.y - previous_point.y
+        outfile.write(b'%+d%+d' % (x, y))
+      previous_point = point
+      point_counter += 1
+
+    return PenState(self.LastPoint(),
+                    position_exact=True,
+                    pen_is_up=False,
+                    last_operation='PR')
+
+#    last_point = None
+#    zero = self._Encode(0)
+#    for point in self.Points():
+#      if last_point is None:
+#        if need_traverse:
+#          if chain_previous:
+#            outfile.write(b';')
+#          outfile.write(b'PU%d,%dPE' % (point.x, point.y + yoffset))
+#        else:
+#          if not chain_previous:
+#            outfile.write(b'PE')
+#          outfile.write(b'=')
+#          outfile.write(self._Encode(point.x))
+#          outfile.write(self._Encode(point.y + yoffset))
+#      else:
+#        outfile.write(self._Encode(point.x - last_point.x))
+#        outfile.write(self._Encode(point.y - last_point.y))
+#      last_point = point
 
   def Chainable(self):
     return True
@@ -315,13 +438,13 @@ class Polyline(Shape):
                          int(point.y * scale)])
     np_points = np.array(all_points, np.int32)
     np_points = np_points.reshape((-1, 1, 2))
-    cv2.polylines(image, [np_points], False, pen_map[self._pen])
+    cv2.polylines(image, [np_points], False, pen_map[self._pen], thickness=3)
 
 
 class ClosedPolyline(Polyline):
   def __init__(self, points, pen):
     self._points = []
-    self._points.extend(points)
+    self._points.extend(copy.deepcopy(points))
     self._start = 0
     super().__init__(pen)
 
@@ -349,14 +472,15 @@ class ClosedPolyline(Polyline):
     return self._points[self._start]
 
   def LastPoint(self):
-    last_index = (len(self._points) + self._start - 1) % len(self._points)
-    return self._points[last_index]
+    return self.FirstPoint()
+    #last_index = (len(self._points) + self._start - 1) % len(self._points)
+    #return self._points[last_index]
 
 
 class OpenPolyline(Polyline):
   def __init__(self, points, pen):
     self._points = deque()
-    self._points.extend(points)
+    self._points.extend(copy.deepcopy(points))
     self._forward_direction = True
     super().__init__(pen)
 
@@ -486,34 +610,30 @@ def WriteShapes(outfile, pen, shapes, merge_dist, page_size):
   if not shapes:
     return
 
-  outfile.write(b'SP%d' % pen)
+  if pen < 0:
+    return
 
-  previous_was_polyline = False
-  last_point = None
-  need_traverse = True
+  outfile.write(b'SP%d' % (pen + 1))
+
+#  previous_was_polyline = False
+  pen_state = PenState(None, position_exact=False, pen_is_up=True)
+  need_letter_offset = page_size == 'letter'
 
   for shape in shapes:
-    need_traverse = (last_point is None or
-        PointDistance(last_point, shape.FirstPoint()) > merge_dist)
-    need_letter_offset = page_size == 'letter'
-    current_is_polyline = issubclass(type(shape), Polyline)
+#    current_is_polyline = issubclass(type(shape), Polyline)
+#    if previous_was_polyline and current_is_polyline:
+#      shape.WriteToFile(outfile, need_traverse, need_letter_offset,
+#                        chain_previous=True)
+#    else:
+#      if previous_was_polyline:
+#        outfile.write(b';')
+#      shape.WriteToFile(outfile, need_traverse, need_letter_offset)
+    shape.SetLetterOffset(need_letter_offset)
+    pen_state = shape.WriteToFile(outfile, pen_state, merge_dist / kResolution)
 
-    if previous_was_polyline and current_is_polyline:
-      shape.WriteToFile(outfile, need_traverse, need_letter_offset,
-                        chain_previous=True)
-    else:
-      if previous_was_polyline:
-        outfile.write(b';')
-      shape.WriteToFile(outfile, need_traverse, need_letter_offset)
-
-    if shape.Chainable():
-      last_point = shape.LastPoint()
-    else:
-      last_point = None
-    previous_was_polyline = current_is_polyline
-
-  if previous_was_polyline:
-    outfile.write(b';')
+#    previous_was_polyline = current_is_polyline
+#  if previous_was_polyline:
+#    outfile.write(b';')
 
 
 def WriteAllShapes(outfile, sorted_shapes, merge_dist, page_size):
@@ -527,30 +647,37 @@ def SortAllAndWrite(outfile, mixed_shapes, merge_dist, page_size, reorder=True):
   WriteAllShapes(outfile, all_sorted, merge_dist, page_size)
 
 PREVIEW_X = 1200  # pixels
+RENDER_X = 3600  # pixels
 
 def ShowPreview(mixed_shapes, page_size, pen_map):
   if page_size == 'letter':
-    scale = PREVIEW_X / kLetterX
-    preview_y = int(kLetterY * scale)
+    scale = RENDER_X / kLetterX
+    render_y = int(kLetterY * scale)
+    preview_y = int(kLetterY * PREVIEW_X / kLetterX)
   elif page_size == 'tabloid':
-    scale = PREVIEW_X / kTabloidX
-    preview_y = int(kTabloidY * scale)
+    scale = RENDER_X / kTabloidX
+    render_y = int(kTabloidY * scale)
+    preview_y = int(kTabloidY * PREVIEW_X / kTabloidX)
   else:
     assert 'Bruh you typoed page size: %s' % page_size
 
   # Numpy arrays are row, col notation, or y, x. Everything else is
   # x, y, so the y and x are reversed.
-  preview_dims = (preview_y, PREVIEW_X, 3)
-  image = np.ones(preview_dims, np.uint8) * 255
+  render_dims = (render_y, RENDER_X, 3)
+  image = np.ones(render_dims, np.uint8) * 255
 
   for shape in mixed_shapes:
     shape.DrawIn(image, pen_map, scale)
 
+  preview = cv2.resize(image, (PREVIEW_X, preview_y), interpolation=cv2.INTER_AREA)
+
   # Put the origin at the bottom left corner, z axis pointing out
   # of the screen.
-  image = np.flip(image, 0)
+  preview = np.flip(preview, 0)
+  # Fix the stupid RGB to BGR.
+  preview = cv2.cvtColor(preview, cv2.COLOR_RGB2BGR)
   cv2.namedWindow('Preview', cv2.WINDOW_AUTOSIZE)
-  cv2.imshow('Preview', image)
+  cv2.imshow('Preview', preview)
 
   return_value = False
   while True:

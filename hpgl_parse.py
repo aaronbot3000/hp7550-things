@@ -65,7 +65,7 @@ class PenParser:
     elif command == 'in':
       return
     elif command == 'sp':
-      new_pen = int(parameters)
+      new_pen = int(parameters) - 1
       if new_pen != self._current_pen:
         self._pen_down = False
         self._current_pen = new_pen
