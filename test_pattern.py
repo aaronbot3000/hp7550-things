@@ -112,7 +112,7 @@ def main():
     if circle_start.x > x_limit:
       break
 
-  # circles
+  # circles that become squares
   circle_start = Point(700, 1700)
   gap = 300
   angle = 0
@@ -127,7 +127,7 @@ def main():
         2 * math.pi / 3.2, kPen))
 
     direction = not direction
-    angle += math.pi / 4
+    angle += math.pi / 5
 
     circle_start.x += gap
     gap = max(gap - 5, 100)
@@ -156,13 +156,13 @@ def main():
     if circle_start.x > x_limit:
       break
 
-                                            
+
   pen_map = [(0, 0, 0)]
   if not plotter_lib.ShowPreview(shapes, 'letter', pen_map):
     return 0
 
   with open(sys.argv[1], 'wb') as dest:
-    plotter_lib.SortAllAndWrite(dest, shapes, 0.7 * kResolution, 'letter',
+    plotter_lib.SortAllAndWrite(dest, shapes, 0.7, 'letter',
         False)
 
 if __name__ == "__main__":

@@ -10,7 +10,7 @@ import sys
 import plotter_lib
 from plotter_lib import Point
 
-kCircleDiameter = int(6 / plotter_lib.kResolution)
+kCircleDiameter = 6 / plotter_lib.kResolution
 kPageSize = 'tabloid'  # letter or tabloid
 kPattern = 'staggered_x'  # grid, staggered_x, staggered_y, random_x, random_y
 kRandomRotation = True
@@ -104,7 +104,7 @@ def main():
         upper_thresh = kCirclePlan[i - 1][0]
         lower_thresh = kCirclePlan[i][0]
         circle_size = kCirclePlan[i][1]
-        diameter = int(kCircleDiameter *
+        diameter = (kCircleDiameter *
             min(circle_size * (upper_thresh - value) /
               (upper_thresh - lower_thresh), circle_size))
         if diameter <= 0:
@@ -134,7 +134,7 @@ def main():
         center[0] = start[0]
         if y_count % 2 == 1:
           center[0] += kCircleDiameter / 2
-        center[1] += int(kCircleDiameter * kStaggeredPacking)
+        center[1] += kCircleDiameter * kStaggeredPacking
       if center[1] > circle_limits[1]:
         break
     elif kPattern == 'staggered_x':
@@ -144,7 +144,7 @@ def main():
         center[1] = start[1]
         if x_count % 2 == 1:
           center[1] += kCircleDiameter / 2
-        center[0] += int(kCircleDiameter * kStaggeredPacking)
+        center[0] += kCircleDiameter * kStaggeredPacking
       if center[0] > circle_limits[0]:
         break
     elif kPattern == 'random_x':

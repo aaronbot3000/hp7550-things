@@ -25,11 +25,11 @@ kTabloidY = 10 * 1016  # points
 
 class Point(object):
   def __init__(self, x, y):
-    self.x = x
-    self.y = y
+    self.x = int(x)
+    self.y = int(y)
 
-  def __copy__(self):
-    return type(self)(self.x, self.y)
+  def __setattr__(self, name, value):
+    super().__setattr__(name, int(value))
 
 
 class PenState(object):
@@ -64,11 +64,12 @@ class Shape(abc.ABC):
 
     global _NEXT_RTREE_ID
     self._id = _NEXT_RTREE_ID
-    self._letter_offset = False
+    self._y_offset = 0
     _NEXT_RTREE_ID += self.NumberOfRtreeIdsConsumed()
 
   def SetLetterOffset(self, letter_offset):
-    self._letter_offset = letter_offset
+    if letter_offset:
+      self._y_offset = kLetterYOffset
 
   @abc.abstractmethod
   def NumberOfRtreeIdsConsumed(self):
@@ -108,94 +109,6 @@ class Shape(abc.ABC):
   def Pen(self):
     return self._pen
 
-  def _MoveToStartPenUp(self, outfile, pen_state):
-    start_point = self.FirstPoint()
-
-    yoffset = 0
-    if self._letter_offset:
-      yoffset = kLetterYOffset
-
-    pen_state.pen_is_up = True
-
-    if pen_state.position is None:
-      outfile.write(b'PU%d%+d' % (self._start_position.x,
-                                  self._start_position.y + yoffset))
-      pen_state.last_operation = 'PU'
-      return pen_state
-
-    x = self._start_position.x - pen_state.position.x
-    y = self._start_position.y - pen_state.position.y
-
-
-    if not pen_state.pen_is_up:
-      outfile.write(b'PU')
-      pen_state.last_operation = 'PU'
-
-    if x != 0 or y != 0:
-      outfile.write(b'PR%d%+d' % (x, y))
-      pen_state.last_operation = 'PR'
-
-
-  def _MoveToStartPenDown(self, outfile, pen_state, merge_dist):
-    start_point = self.FirstPoint()
-
-    yoffset = 0
-    if self._letter_offset:
-      yoffset = kLetterYOffset
-
-    pen_state.pen_is_up = False
-    if pen_state.position is None:
-      outfile.write(b'PU%d%+dPD' % (start_point.x, start_point.y + yoffset))
-      pen_state.last_operation = 'PD'
-      return pen_state
-
-    x = start_point.x - pen_state.position.x
-    y = start_point.y - pen_state.position.y
-
-    if x == 0 and y == 0:
-      if pen_state.pen_is_up:
-        outfile.write(b'PD')
-        pen_state.last_operation = 'PD'
-      return pen_state
-
-    if (self.Chainable() and
-        PointDistance(pen_state.position, start_point) < merge_dist):
-      if pen_state.position_exact:
-        if pen_state.pen_is_up:
-          outfile.write(b'PD')
-          pen_state.last_operation = 'PD'
-        if pen_state.last_operation == 'PR':
-          outfile.write(b'%+d%+d' % (x, y))
-        else:
-          outfile.write(b'PR%d%+d' % (x, y))
-          pen_state.last_operation = 'PR'
-      else:
-        if pen_state.last_operation == 'PD':
-          outfile.write(b'%+d%+d' % (start_point.x, start_point.y + yoffset))
-        else:
-          outfile.write(b'PD%d%+d' % (start_point.x, start_point.y + yoffset))
-          pen_state.last_operation = 'PD'
-    else:
-      if pen_state.position_exact:
-        if not pen_state.pen_is_up:
-          outfile.write(b'PU')
-          pen_state.last_operation = 'PU'
-        if pen_state.last_operation == 'PR':
-          outfile.write(b'%+d%+dPD' % (x, y))
-          pen_state.last_operation = 'PD'
-        else:
-          outfile.write(b'PR%d%+dPD' % (x, y))
-          pen_state.last_operation = 'PD'
-      else:
-        if pen_state.last_operation == 'PU':
-          outfile.write(b'%+d%+dPD' % (start_point.x, start_point.y + yoffset))
-        else:
-          outfile.write(b'PU%d%+dPD' % (start_point.x, start_point.y + yoffset))
-        pen_state.last_operation = 'PD'
-
-    pen_state.pen_is_up = False
-    return pen_state
-
 
 class Label(Shape):
   def __init__(self, text, start_position, size, angle, pen):
@@ -216,7 +129,12 @@ class Label(Shape):
     return 1
 
   def WriteToFile(self, outfile, pen_state, _):
-    self._MoveToStartPenUp(outfile, pen_state)
+    start_point = self.FirstPoint()
+    if pen_state.last_operation != 'PU':
+      outfile.write(b'PU')
+    outfile.write(b'+%d%+dPD' % (start_point.x,
+                                 start_point.y + self._y_offset))
+
     outfile.write(b'SI%.2f,%.2f' % (self._size[0], self._size[1]))
     run = math.cos(self._angle)
     rise = math.sin(self._angle)
@@ -225,10 +143,12 @@ class Label(Shape):
     outfile.write(bytes(self._text, encoding='ascii'))
     outfile.write(b'\3')
 
-    return PenState(position=None,
-                    position_exact=False,
-                    pen_is_up=True,
-                    last_operation='LB')
+    pen_state.position = self.LastPoint()
+    pen_state.position_exact = False
+    pen_state.pen_is_up = True
+    pen_state.last_operation = 'LB'
+
+    return pen_state
 
   def FirstPoint(self):
     return self._start_position
@@ -278,7 +198,11 @@ class Arc(Shape):
     self._start = start
     self._radius = diameter / 2.0
     self._sweep = sweep
-    self._chord = chord
+
+    # Non integer number of chords is rounded up.
+    self._chord = None
+    if chord is not None:
+      self._chord = 360 / math.ceil(360.0 / np.degrees(chord))
 
     self._forward_direction = True
     super().__init__(pen)
@@ -287,14 +211,24 @@ class Arc(Shape):
     return 2
 
   def WriteToFile(self, outfile, pen_state, merge_dist):
-    start_point = self.FirstPoint()
-
     if self._forward_direction:
       sweep = self._sweep
     else:
       sweep = -1 * self._sweep
 
-    self._MoveToStartPenDown(outfile, pen_state, merge_dist)
+    start_point = self.FirstPoint()
+
+    if (merge_dist is not None and
+        PointDistance(pen_state.position, start_point) < merge_dist):
+      if pen_state.last_operation != 'PD':
+        outfile.write(b'PD')
+      outfile.write(b'+%d%+d' % (start_point.x,
+                                 start_point.y + self._y_offset))
+    else:
+      if pen_state.last_operation != 'PU':
+        outfile.write(b'PU')
+      outfile.write(b'+%d%+dPD' % (start_point.x,
+                                   start_point.y + self._y_offset))
 
     cx = self._center.x - start_point.x
     cy = self._center.y - start_point.y
@@ -302,12 +236,13 @@ class Arc(Shape):
         (cx, cy, np.degrees(sweep)))
 
     if self._chord is not None:
-      outfile.write(b'%+d' % np.degrees(self._chord))
+      outfile.write(b'%+d' % self._chord)
 
-    return PenState(self.LastPoint(),
-                    position_exact=False,
-                    pen_is_up=False,
-                    last_operation='AR')
+    pen_state.position = self.LastPoint(),
+    pen_state.position_exact=False,
+    pen_state.pen_is_up=False,
+    pen_state.last_operation='AR'
+    return pen_state
 
   def FirstPoint(self):
     if self._forward_direction:
@@ -351,7 +286,7 @@ class Arc(Shape):
   def DrawIn(self, image, pen_map, scale):
     chord = 2 * math.pi / 20
     if self._chord is not None:
-      chord = self._chord
+      chord = np.radians(self._chord)
 
     polyline = cv2.ellipse2Poly(
         (int(self._center.x * scale), int(self._center.y * scale)),
@@ -376,57 +311,68 @@ class Polyline(Shape):
     base = 64
 
     # Add sign bit.
-    number = int(2 * number)  # no funny business
+    scaled = abs(2 * int(number))  # no funny business
     if number < 0:
-      number *= -1
-      number += 1
+      scaled += 1
 
     digits = []  # little endian
-    while number >= base:
-      digits.append(63 + (number % base))
-      number = int(number / base)
-    digits.append(number + 191)
+    while scaled >= base:
+      digits.append(63 + (scaled % base))
+      scaled = int(scaled / base)
+    digits.append(scaled + 191)
     return bytes(digits)
 
+  def WriteFirstPoint(self, outfile, pen_state, merge_dist):
+    zero = self._Encode(0)
+    point = self.FirstPoint()
+
+    # This is the first point.
+    need_zeros = False
+    if (merge_dist is not None and
+        PointDistance(pen_state.position, start_point) < merge_dist):
+      # This shape can be merged into the previous shape.
+      # First check if we need to enter the polyline encoded command.
+      if pen_state.last_operation != 'PE':
+        outfile.write(b'PE')
+    else:
+      # This shape cannot be merged.
+      if pen_state.last_operation != 'PE':
+        outfile.write(b'PE')
+      # Write the pen up command.
+      outfile.write(b'<')
+      need_zeros = True
+
+    # See if we have a handle on the position.
+    if pen_state.position_exact:
+      outfile.write(self._Encode(point.x - pen_state.position.x))
+      outfile.write(self._Encode(point.y - pen_state.position.y))
+    else:
+      # If not, write the next coordinate with absolute position.
+      outfile.write(b'=')
+      outfile.write(self._Encode(point.x))
+      outfile.write(self._Encode(point.y + self._y_offset))
+
+    # Write zeros if needed as recommended by the reference guide.
+    if need_zeros:
+      outfile.write(zero)
+      outfile.write(zero)
+
   def WriteToFile(self, outfile, pen_state, merge_dist):
-    pen_state = self._MoveToStartPenDown(outfile, pen_state, merge_dist)
-
-    previous_point = None
-    point_counter = 0
+    last_point = None
     for point in self.Points():
-      if previous_point is None:
-        if pen_state.last_operation != 'PR':
-          outfile.write(b'PR')
+      if last_point is None:
+        self.WriteFirstPoint(outfile, pen_state, merge_dist)
       else:
-        x = point.x - previous_point.x
-        y = point.y - previous_point.y
-        outfile.write(b'%+d%+d' % (x, y))
-      previous_point = point
-      point_counter += 1
+        outfile.write(self._Encode(point.x - last_point.x))
+        outfile.write(self._Encode(point.y - last_point.y))
+      last_point = point
 
-    return PenState(self.LastPoint(),
-                    position_exact=True,
-                    pen_is_up=False,
-                    last_operation='PR')
+    pen_state.position = self.LastPoint()
+    pen_state.position_exact = True
+    pen_state.pen_is_up = False,
+    pen_state.last_operation = 'PE'
 
-#    last_point = None
-#    zero = self._Encode(0)
-#    for point in self.Points():
-#      if last_point is None:
-#        if need_traverse:
-#          if chain_previous:
-#            outfile.write(b';')
-#          outfile.write(b'PU%d,%dPE' % (point.x, point.y + yoffset))
-#        else:
-#          if not chain_previous:
-#            outfile.write(b'PE')
-#          outfile.write(b'=')
-#          outfile.write(self._Encode(point.x))
-#          outfile.write(self._Encode(point.y + yoffset))
-#      else:
-#        outfile.write(self._Encode(point.x - last_point.x))
-#        outfile.write(self._Encode(point.y - last_point.y))
-#      last_point = point
+    return pen_state
 
   def Chainable(self):
     return True
@@ -473,8 +419,6 @@ class ClosedPolyline(Polyline):
 
   def LastPoint(self):
     return self.FirstPoint()
-    #last_index = (len(self._points) + self._start - 1) % len(self._points)
-    #return self._points[last_index]
 
 
 class OpenPolyline(Polyline):
@@ -615,29 +559,31 @@ def WriteShapes(outfile, pen, shapes, merge_dist, page_size):
 
   outfile.write(b'SP%d' % (pen + 1))
 
-#  previous_was_polyline = False
   pen_state = PenState(None, position_exact=False, pen_is_up=True)
   need_letter_offset = page_size == 'letter'
 
+  previous_shape = None
   for shape in shapes:
-#    current_is_polyline = issubclass(type(shape), Polyline)
-#    if previous_was_polyline and current_is_polyline:
-#      shape.WriteToFile(outfile, need_traverse, need_letter_offset,
-#                        chain_previous=True)
-#    else:
-#      if previous_was_polyline:
-#        outfile.write(b';')
-#      shape.WriteToFile(outfile, need_traverse, need_letter_offset)
     shape.SetLetterOffset(need_letter_offset)
-    pen_state = shape.WriteToFile(outfile, pen_state, merge_dist / kResolution)
+    merge_dist_quanta = None
+    if (previous_shape is not None and
+        previous_shape.Chainable() and
+        shape.Chainable()):
+      merge_dist_quanta = merge_dist / kResolution
 
-#    previous_was_polyline = current_is_polyline
-#  if previous_was_polyline:
-#    outfile.write(b';')
+    if (pen_state.last_operation == 'PE' and
+        not issubclass(type(shape), Polyline)):
+      outfile.write(b';')
+      pen_state.last_operation = None
+
+    pen_state = shape.WriteToFile(outfile, pen_state, merge_dist_quanta)
+
+  if pen_state.last_operation == 'PE':
+    outfile.write(b';')
 
 
 def WriteAllShapes(outfile, sorted_shapes, merge_dist, page_size):
-  outfile.write(b'IN')
+  outfile.write(b'INPA')
   for pen, shapes in sorted_shapes.items():
     WriteShapes(outfile, pen, shapes, merge_dist, page_size)
   outfile.write(b'PUSP0;\n')
