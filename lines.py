@@ -178,14 +178,12 @@ class Hatch(program_lib.Program):
     self._line_offset = line_offset
 
     # Set up start of line pattern.
-    image_dim_plot = self._image_dim * self._image_to_plot
-    line_limits = self._image_origin + image_dim_plot
-    center = self._image_origin + (image_dim_plot / 2)
+    center = self._image_origin + (self._image_dim_plot / 2)
 
     # Figure out overestimate of number of lines to make.
-    longest_dimension = math.sqrt(math.pow(image_dim_plot[0], 2) +
-                                  math.pow(image_dim_plot[1], 2))
-    num_lines = int((longest_dimension / 2) / line_spacing) + 1
+    longest_dimension = math.sqrt(math.pow(self._image_dim_plot[0], 2) +
+                                  math.pow(self._image_dim_plot[1], 2))
+    num_lines = int((longest_dimension / 2) / self._line_spacing) + 1
 
     shapes = deque()
     for angle, color_range in line_map:
