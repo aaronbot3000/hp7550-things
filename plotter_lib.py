@@ -22,6 +22,10 @@ kLetterYOffset = int(12 / kResolution)  # points
 kTabloidX = int(15.684 * 1016)  # points
 kTabloidY = 10 * 1016  # points
 
+kPreviewAlpha = 255
+kLineWidth = 2
+kLineType = cv2.LINE_AA
+
 
 class Point(object):
   def __init__(self, x, y):
@@ -298,8 +302,9 @@ class Arc(Shape):
     cv2.polylines(image,
         [polyline],
         False,
-        pen_map[self._pen],
-        thickness=3)
+        pen_map[self._pen] + (kPreviewAlpha,),
+        thickness=kLineWidth,
+        lineType=kLineType)
 
 
 class Polyline(Shape):
@@ -384,7 +389,12 @@ class Polyline(Shape):
                          int(point.y * scale)])
     np_points = np.array(all_points, np.int32)
     np_points = np_points.reshape((-1, 1, 2))
-    cv2.polylines(image, [np_points], False, pen_map[self._pen], thickness=3)
+    cv2.polylines(image,
+                  [np_points],
+                  False,
+                  pen_map[self._pen] + (kPreviewAlpha,),
+                  thickness=kLineWidth,
+                  lineType=kLineType)
 
 
 class ClosedPolyline(Polyline):
@@ -532,7 +542,7 @@ def _Sort(shape_deque):
   return sorted_shapes
 
 
-def SortAll(mixed_shapes, reorder=True):
+def CategorizeShapes(mixed_shapes):
   # Sort shapes by pen.
   categorized_shapes = {}
   for shape in mixed_shapes:
@@ -540,7 +550,11 @@ def SortAll(mixed_shapes, reorder=True):
     if not pen in categorized_shapes:
       categorized_shapes[pen] = deque()
     categorized_shapes[pen].append(shape)
+  return categorized_shapes
 
+
+def SortAll(mixed_shapes, reorder=True):
+  categorized_shapes = CategorizeShapes(mixed_shapes)
   if reorder:
     sorted_shapes = {}
     for pen, shape_list in categorized_shapes.items():
@@ -588,6 +602,7 @@ def WriteAllShapes(outfile, sorted_shapes, merge_dist, page_size):
     WriteShapes(outfile, pen, shapes, merge_dist, page_size)
   outfile.write(b'PUSP0;\n')
 
+
 def SortAllAndWrite(outfile, mixed_shapes, merge_dist, page_size, reorder=True):
   all_sorted = SortAll(mixed_shapes, reorder)
   WriteAllShapes(outfile, all_sorted, merge_dist, page_size)
@@ -609,13 +624,73 @@ def ShowPreview(mixed_shapes, page_size, pen_map):
 
   # Numpy arrays are row, col notation, or y, x. Everything else is
   # x, y, so the y and x are reversed.
-  render_dims = (render_y, RENDER_X, 3)
-  image = np.ones(render_dims, np.uint8) * 255
+  render_dims = (render_y, RENDER_X)
+  accumulator = np.zeros(render_dims + (4,), np.float64)
+  acc_r, acc_g, acc_b, acc_a = np.dsplit(accumulator, 4)
 
-  for shape in mixed_shapes:
-    shape.DrawIn(image, pen_map, scale)
+  print('Sorting shapes.')
+  categorized_shapes = CategorizeShapes(mixed_shapes)
+  color_planes = []
+  print('Drawing shapes.')
+  for _, shape_list in categorized_shapes.items():
+    color_planes.append(np.zeros(render_dims + (4,), np.int32))
+    for shape in shape_list:
+      shape.DrawIn(color_planes[-1], pen_map, scale)
 
-  preview = cv2.resize(image, (PREVIEW_X, preview_y), interpolation=cv2.INTER_AREA)
+  # Accumulate colors.
+  print('Summing images.')
+  alphacount = np.zeros(render_dims + (1,))
+  for plane in color_planes:
+    plane_r, plane_g, plane_b, plane_a = np.dsplit(plane, 4)
+
+    np.multiply(plane_r, plane_a, out=plane_r)
+    np.add(acc_r, plane_r, out=acc_r)
+
+    np.multiply(plane_g, plane_a, out=plane_g)
+    np.add(acc_g, plane_g, out=acc_g)
+
+    np.multiply(plane_b, plane_a, out=plane_b)
+    np.add(acc_b, plane_b, out=acc_b)
+
+    np.add(acc_a, plane_a, acc_a)
+
+    # Keep track of how many non-zero alpha values for each pixel.
+    np.add(alphacount, 1, out=alphacount, where=np.greater(plane_a, 0))
+
+  print('Averaging.')
+  # Average colors.
+  nonzeros = np.greater(alphacount, 0)
+  np.divide(acc_r, acc_a, out=acc_r, where=nonzeros)
+  np.divide(acc_g, acc_a, out=acc_g, where=nonzeros)
+  np.divide(acc_b, acc_a, out=acc_b, where=nonzeros)
+  np.divide(acc_a, alphacount, out=acc_a, where=nonzeros)
+
+  print('Applying transparency and adding background.')
+  # Multiply alpha transparency.
+  np.multiply(acc_r, acc_a, out=acc_r)
+  np.divide(acc_r, 255, out=acc_r)
+
+  np.multiply(acc_g, acc_a, out=acc_g)
+  np.divide(acc_g, 255, out=acc_g)
+
+  np.multiply(acc_b, acc_a, out=acc_b)
+  np.divide(acc_b, 255, out=acc_b)
+
+  inv_alpha = np.subtract(255, acc_a)
+
+  # Add white background.
+  np.add(acc_r, inv_alpha, out=acc_r)
+  np.add(acc_g, inv_alpha, out=acc_g)
+  np.add(acc_b, inv_alpha, out=acc_b)
+
+  # Reshape into non-alpha image and convert to uint8 for opencv's UI.
+  values, _ = np.dsplit(accumulator, [3])
+  needs_casting = values.reshape(render_dims + (3,))
+  combined_output = np.array(needs_casting, np.uint8)
+
+  print('Done')
+  preview = cv2.resize(combined_output, (PREVIEW_X, preview_y),
+      interpolation=cv2.INTER_AREA)
 
   # Put the origin at the bottom left corner, z axis pointing out
   # of the screen.
@@ -628,7 +703,6 @@ def ShowPreview(mixed_shapes, page_size, pen_map):
   return_value = False
   while True:
     key = cv2.waitKey(0)
-    print(key)
     if key == 1048586:
       return_value = True
       break;
