@@ -6,13 +6,13 @@ import numpy as np
 import random
 import sys
 
-import plotter_lib
-from plotter_lib import Arc
-from plotter_lib import Label
-from plotter_lib import Point
-from plotter_lib import ShowPreview
-from plotter_lib import SortAllAndWrite
-from plotter_lib import Square
+import lib.plotter as plotter
+from lib.plotter import Arc
+from lib.plotter import Label
+from lib.plotter import Point
+from lib.plotter import ShowPreview
+from lib.plotter import SortAllAndWrite
+from lib.plotter import Square
 
 # 40 points per mm
 
@@ -22,14 +22,14 @@ kPen = 0
 def main():
   shapes = deque()
 
-  x_limit = plotter_lib.kLetterX
-  y_limit = plotter_lib.kLetterY
+  x_limit = plotter.kLetterX
+  y_limit = plotter.kLetterY
 
   # horizontal lines
   line_start = Point(0, 0)
   while True:
     line_end = Point(line_start.x + 200, line_start.y)
-    shapes.append(plotter_lib.OpenPolyline((line_start, line_end), kPen))
+    shapes.append(plotter.OpenPolyline((line_start, line_end), kPen))
     line_start.y += 200
     if line_start.y > y_limit:
       break
@@ -38,7 +38,7 @@ def main():
   delta = 40
   while True:
     line_end = Point(line_start.x + 200, line_start.y)
-    shapes.append(plotter_lib.OpenPolyline((line_start, line_end), kPen))
+    shapes.append(plotter.OpenPolyline((line_start, line_end), kPen))
     line_start.y += delta
     delta *= 1.1
     if line_start.y > y_limit:
@@ -50,9 +50,9 @@ def main():
   while True:
     line_end = Point(line_start.x, line_start.y + 200)
     if direction:
-      shapes.append(plotter_lib.OpenPolyline((line_start, line_end), kPen))
+      shapes.append(plotter.OpenPolyline((line_start, line_end), kPen))
     else:
-      shapes.append(plotter_lib.OpenPolyline((line_end, line_start), kPen))
+      shapes.append(plotter.OpenPolyline((line_end, line_start), kPen))
 
     direction = not direction
 
@@ -65,9 +65,9 @@ def main():
   while True:
     line_end = Point(line_start.x, line_start.y + 200)
     if direction:
-      shapes.append(plotter_lib.OpenPolyline((line_start, line_end), kPen))
+      shapes.append(plotter.OpenPolyline((line_start, line_end), kPen))
     else:
-      shapes.append(plotter_lib.OpenPolyline((line_end, line_start), kPen))
+      shapes.append(plotter.OpenPolyline((line_end, line_start), kPen))
 
     direction = not direction
 
@@ -158,11 +158,11 @@ def main():
 
 
   pen_map = [(0, 0, 0)]
-  if not plotter_lib.ShowPreview(shapes, 'letter', pen_map):
+  if not plotter.ShowPreview(shapes, 'letter', pen_map):
     return 0
 
   with open(sys.argv[1], 'wb') as dest:
-    plotter_lib.SortAllAndWrite(dest, shapes, 0.7, 'letter',
+    plotter.SortAllAndWrite(dest, shapes, 0.7, 'letter',
         False)
 
 if __name__ == "__main__":

@@ -2,4 +2,5 @@
 *.png
 *.hpgl
 *.pyc
+*.swp
 __pycache__

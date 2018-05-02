@@ -1,6 +1,6 @@
 import cv2
 
-import plotter_lib
+import lib.plotter as plotter
 import numpy as np
 
 class Program(object):
@@ -41,11 +41,11 @@ class Program(object):
     self._image_dim = np.array((len(image[0]), len(image)), np.int32)
 
     if self._paper_type == 'tabloid':
-      x_limit = plotter_lib.kTabloidX
-      y_limit = plotter_lib.kTabloidY
+      x_limit = plotter.kTabloidX
+      y_limit = plotter.kTabloidY
     else:
-      x_limit = plotter_lib.kLetterX
-      y_limit = plotter_lib.kLetterY
+      x_limit = plotter.kLetterX
+      y_limit = plotter.kLetterY
 
     # Center and get image scaling.
     self._image_to_plot = min((x_limit - margin) / self._image_dim[0],

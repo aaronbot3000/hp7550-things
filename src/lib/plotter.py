@@ -23,7 +23,7 @@ kTabloidX = int(15.684 * 1016)  # points
 kTabloidY = 10 * 1016  # points
 
 kPreviewAlpha = 255
-kLineWidth = 2
+kLineWidth = 3
 kLineType = cv2.LINE_AA
 
 

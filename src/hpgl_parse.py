@@ -1,16 +1,15 @@
 #!/usr/bin/python3
-
 from collections import deque
 import sys
 
-import plotter_lib
-from plotter_lib import ClosedPolyline
-from plotter_lib import OpenPolyline
-from plotter_lib import Point
-from plotter_lib import PointDistance
-from plotter_lib import SortAllAndWrite
+import lib.plotter
+from lib.plotter import ClosedPolyline
+from lib.plotter import OpenPolyline
+from lib.plotter import Point
+from lib.plotter import PointDistance
+from lib.plotter import SortAllAndWrite
 
-kMergeDistance = 0.3 / plotter_lib.kResolution  # input in mm
+kMergeDistance = 0.3 / lib.plotter.kResolution  # input in mm
 
 
 class PenParser:

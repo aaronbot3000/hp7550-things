@@ -1,5 +1,4 @@
 #!/usr/bin/python3
-
 from collections import deque
 import cv2
 import math
@@ -7,12 +6,11 @@ import numpy as np
 import random
 import sys
 
-import pens
-import plotter_lib
-import program_lib
-from plotter_lib import Point
+import lib.pens as pens
+import lib.plotter as plotter
+import lib.program as program
 
-kCircleDiameter = 4 / plotter_lib.kResolution
+kCircleDiameter = 4 / plotter.kResolution
 kPageSize = 'letter'  # letter or tabloid
 kPattern = 'random_x'  # grid, staggered_x, staggered_y, random_x, random_y
 kRandomRotation = True
@@ -35,7 +33,7 @@ kCirclePlan = (
     (20,  0.95))
 
 kPenMap = [pens.SARASA['pink'],
-           pens.SARASA['blue'],
+           pens.PIGMA_MICRON['yellow'],
            pens.SARASA['light blue'],
            pens.SARASA['orange'],
            pens.SARASA['light green'],
@@ -58,7 +56,7 @@ kBlur = kCircleDiameter
 
 random.seed(0)
 
-class Circles(program_lib.Program):
+class Circles(program.Program):
   def __init__(self, page_size):
     super().__init__(page_size)
 
@@ -127,7 +125,7 @@ class Circles(program_lib.Program):
         if self._random_rotation:
           start_angle = random.random() * math.pi * 2
         circles_here.append(
-            plotter_lib.Arc(Point(position[0], position[1]),
+            plotter.Arc(plotter.Point(position[0], position[1]),
               diameter,
               start_angle,
               2 * math.pi,
@@ -146,14 +144,14 @@ class Circles(program_lib.Program):
         if scale is None:
           break
         diameter = self._diameter * actual_scale
-        if diameter < .2 / plotter_lib.kResolution:
+        if diameter < .2 / plotter.kResolution:
           break;
 
         start_angle = 0
         if self._random_rotation:
           start_angle = random.random() * math.pi * 2
         circles_here.append(
-            plotter_lib.Arc(Point(position[0], position[1]),
+            plotter.Arc(plotter.Point(position[0], position[1]),
               diameter,
               start_angle,
               2 * math.pi,
@@ -269,11 +267,11 @@ def main():
       kChord, kCirclePlan, kRandomRotation, kPenMap)
 
   print('Contains %d "circles".' % len(circles))
-  if not plotter_lib.ShowPreview(circles, kPageSize, kPenMap):
+  if not plotter.ShowPreview(circles, kPageSize, kPenMap):
     return 0
 
   with open(sys.argv[2], 'wb') as dest:
-    plotter_lib.SortAllAndWrite(dest, circles, 0.3, kPageSize)
+    plotter.SortAllAndWrite(dest, circles, 0.3, kPageSize)
 
 if __name__ == "__main__":
   main()

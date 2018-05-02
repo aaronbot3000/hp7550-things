@@ -4,11 +4,12 @@ import math
 import random
 import sys
 
-from plotter_lib import Label
-from plotter_lib import Point
-from plotter_lib import ShowPreview
-from plotter_lib import SortAllAndWrite
-from plotter_lib import Square
+import lib.pens as pens
+from lib.plotter import Label
+from lib.plotter import Point
+from lib.plotter import ShowPreview
+from lib.plotter import SortAllAndWrite
+from lib.plotter import Square
 
 # 10 inch page width (cols)
 # 15.684 inch page height (rows)
@@ -49,7 +50,7 @@ def main():
   shapes.append(
       Label('SYMBOLIC DISARRAY', Point(15900, 1016), (0.25, 0.25), math.pi / 2, 1))
 
-  pen_map = [(0, 0, 0), (255, 0, 0)]
+  pen_map = [pens.SARASA['black'], pens.SARASA['red']]
   if not ShowPreview(shapes, 'tabloid', pen_map):
     return 0
 

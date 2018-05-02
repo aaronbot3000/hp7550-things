@@ -1,13 +1,13 @@
 #!/usr/bin/python3
 from collections import deque
-import sys
 import math
+import sys
 
-import plotter_lib
-from plotter_lib import Point
-from plotter_lib import ShowPreview
-from plotter_lib import SortAllAndWrite
-from plotter_lib import WriteShapes
+import lib.plotter as plotter
+from lib.plotter import Point
+from lib.plotter import ShowPreview
+from lib.plotter import SortAllAndWrite
+from lib.plotter import WriteShapes
 
 def main():
   shapes = deque()
@@ -23,7 +23,7 @@ def main():
       y_pos = y_offset + side * j
 
       shapes.append(
-          plotter_lib.Arc(Point(x_pos, y_pos),
+          plotter.Arc(Point(x_pos, y_pos),
             side,
             (i + j) * 2 * math.pi / (22 + 13),
             2,
@@ -38,7 +38,7 @@ def main():
 #  for i in range(5):
 #    for j in range(5):
 #      shapes.append(
-#          plotter_lib.Label('loLOgy',
+#          plotter.Label('loLOgy',
 #            Point(500 * i, 1000 * j),
 #            (i * 0.2 + 0.2, j * 0.2 + 0.2),
 #            0,

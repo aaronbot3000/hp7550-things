@@ -1,5 +1,4 @@
 #!/usr/bin/python3
-
 from collections import deque
 import cv2
 import math
@@ -7,13 +6,12 @@ import numpy as np
 import random
 import sys
 
-import plotter_lib
-from plotter_lib import Point
+import lib.plotter as plotter
 
 kPageSize = 'letter'  # letter or tabloid
 
-kLineSpacing = int(3 / plotter_lib.kResolution)
-kLineResolution = int(3 / plotter_lib.kResolution)
+kLineSpacing = int(3 / plotter.kResolution)
+kLineResolution = int(3 / plotter.kResolution)
 
 kPen = 0
 
@@ -29,11 +27,11 @@ def main():
 
   # Set up paper bounds.
   if kPageSize == 'tabloid':
-    x_limit = plotter_lib.kTabloidX
-    y_limit = plotter_lib.kTabloidY
+    x_limit = plotter.kTabloidX
+    y_limit = plotter.kTabloidY
   else:
-    x_limit = plotter_lib.kLetterX
-    y_limit = plotter_lib.kLetterY
+    x_limit = plotter.kLetterX
+    y_limit = plotter.kLetterY
 
   # Center and get image scaling.
   image_to_plot = min((x_limit - kLineResolution) / image_dim[0],
@@ -80,24 +78,30 @@ def main():
       thresh2 = 100.0
       thresh3 = 0
       value = filter_image[int(image_position[1]), int(image_position[0])]
-      line_length = int(kLineResolution * min(((thresh1 - value) / (thresh1 - thresh2)), 1))
+      line_length = int(kLineResolution *
+          min(((thresh1 - value) / (thresh1 - thresh2)), 1))
       if line_length <= 0:
         continue
 
-      start_point = Point(center[0] - line_length / 2, center[1] + line_length / 2)
-      end_point = Point(center[0] + line_length / 2, center[1] - line_length / 2)
-      shapes.append(plotter_lib.OpenPolyline((start_point, end_point), kPen))
+      start_point = plotter.Point(
+          center[0] - line_length / 2, center[1] + line_length / 2)
+      end_point = plotter.Point(
+          center[0] + line_length / 2, center[1] - line_length / 2)
+      shapes.append(plotter.OpenPolyline((start_point, end_point), kPen))
 
       if value >= thresh2:
         continue
 
-      line_length = int(kLineResolution * min(((thresh2 - value) / (thresh2 - thresh3)), 1))
+      line_length = int(kLineResolution *
+          min(((thresh2 - value) / (thresh2 - thresh3)), 1))
       if line_length <= 0:
         continue
 
-      start_point = Point(center[0] + line_length / 2, center[1] + line_length / 2)
-      end_point = Point(center[0] - line_length / 2, center[1] - line_length / 2)
-      shapes.append(plotter_lib.OpenPolyline((start_point, end_point), kPen))
+      start_point = plotter.Point(
+          center[0] + line_length / 2, center[1] + line_length / 2)
+      end_point = plotter.Point(
+          center[0] - line_length / 2, center[1] - line_length / 2)
+      shapes.append(plotter.OpenPolyline((start_point, end_point), kPen))
 
 #      if value >= thresh3:
 #        continue
@@ -108,7 +112,7 @@ def main():
 #
 #      start_point = Point(center[0] - line_length / 2, center[1])
 #      end_point = Point(center[0] + line_length / 2, center[1])
-#      shapes.append(plotter_lib.OpenPolyline((start_point, end_point), kPen))
+#      shapes.append(plotter.OpenPolyline((start_point, end_point), kPen))
 
 
   cv2.namedWindow('filter', cv2.WINDOW_AUTOSIZE)
@@ -118,11 +122,11 @@ def main():
   print('Line segments: %d' % len(shapes))
 
   pen_map = [(0, 0, 0)]
-  if not plotter_lib.ShowPreview(shapes, kPageSize, pen_map):
+  if not plotter.ShowPreview(shapes, kPageSize, pen_map):
     return 0
   
   with open(sys.argv[2], 'wb') as dest:
-    plotter_lib.SortAllAndWrite(dest, shapes, 0.7, kPageSize)
+    plotter.SortAllAndWrite(dest, shapes, 0.7, kPageSize)
 
 if __name__ == "__main__":
   main()
