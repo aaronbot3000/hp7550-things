@@ -58,7 +58,7 @@ class Hatch(program.Program):
     for level in levels:
       all_shapes.extend(self._PlaceHatches(level))
 
-    return all_shapes 
+    return all_shapes
 
 def main():
   source_name = sys.argv[1]

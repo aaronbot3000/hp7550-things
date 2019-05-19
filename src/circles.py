@@ -170,7 +170,7 @@ class Circles(program.Program):
         score += max((max_diff - difference) / max_diff, 0) / 2
         score += min(color_labcolor.lab_l / self._pen_labcolor[pen_index].lab_l, 1) / 2
         best_result = (pen_index, score)
-  
+
     if best_result[0] == len(self._pen_map) - 1:
       return (None, None)
     return best_result
@@ -190,7 +190,7 @@ class Circles(program.Program):
 
       inv_color = (255 - np.array(self._pen_map[result[0]]))
       working_value = np.minimum(working_value + inv_color, 255)
-      
+
       diameter = (self._diameter * circle_size)
       if diameter <= 0:
         break

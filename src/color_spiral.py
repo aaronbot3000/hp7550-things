@@ -139,7 +139,7 @@ class Spiraler(program.Program):
       self._center = self._image_origin + self._image_dim_plot * rand
 
     shapes = deque()
-    
+
     for iteration in range(2):
       start_angle_offset = random.random() * math.pi
       #rand = np.array((random.random(), random.random()))
