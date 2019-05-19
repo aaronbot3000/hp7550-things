@@ -56,12 +56,16 @@ class Program(object):
 
     self._image_dim_plot = self._image_dim * self._image_to_plot
 
+    if not blur:
+      return image
+
     # Blur the image.
     line_size_in_image = int(blur * self._plot_to_image)
     if line_size_in_image % 2 == 0:
       line_size_in_image += 1
     return cv2.blur(image, (line_size_in_image, line_size_in_image))
 
+  # plotter position on paper to image position
   def GetImagePosition(self, position):
     image_position = np.round((position - self._image_origin) *
         self._plot_to_image, 0)
@@ -70,3 +74,14 @@ class Program(object):
       return None
     return image_position
 
+  def _ShiftScale(self, position):
+    plotter_position = self._image_origin + (position * self._image_to_plot)
+    return plotter.Point(plotter_position[0], plotter_position[1])
+
+  # image position to plotter position
+  def Image2Plotter(self, position):
+    return self._ShiftScale(position)
+
+  def Image2Plotter(self, x, y):
+    position = np.array((x, y))
+    return self._ShiftScale(position)

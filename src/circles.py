@@ -1,5 +1,7 @@
 #!/usr/bin/python3
 from collections import deque
+from colormath.color_objects import LabColor
+from colormath.color_diff import delta_e_cmc
 import cv2
 import math
 import numpy as np
@@ -10,48 +12,58 @@ import lib.pens as pens
 import lib.plotter as plotter
 import lib.program as program
 
-kCircleDiameter = 4 / plotter.kResolution
+kCircleDiameter = 3.0 / plotter.kResolution
 kPageSize = 'letter'  # letter or tabloid
-kPattern = 'random_x'  # grid, staggered_x, staggered_y, random_x, random_y
+kPattern = 'staggered_x'  # grid, staggered_x, staggered_y, random_x, random_y
 kRandomRotation = True
 kRandomCircles = 6000
 kStaggeredPacking = 0.82
 
 kChord = 2 * math.pi / 4
-#kCirclePlan = (
-#    (240, None),
-#    (120, 0.95),
-#    (40,  0.70),
-#    (20,  0.45),
-#    (0,   0.25))
+kGrayscaleCirclePlan = (
+    None,
+    0.95,
+    0.70,
+    0.45,
+    0.25)
 
-kCirclePlan = (
-    (240, None),
-    (120, 0.95),
-    (40,  0.95),
-    (20,  0.95),
-    (20,  0.95))
+kColorCirclePlan = (1, 1, 1)
 
-kPenMap = [pens.SARASA['pink'],
-           pens.PIGMA_MICRON['yellow'],
-           pens.SARASA['light blue'],
-           pens.SARASA['orange'],
-           pens.SARASA['light green'],
-           pens.SARASA['red'],
-           pens.SARASA['violet'],
-           pens.SARASA['mahogany'],
-           ]
+kTestColors = [
+    pens.PURE['red'],
+    pens.PURE['green'],
+    pens.PURE['blue'],
+    pens.PURE['cyan'],
+    pens.PURE['magenta'],
+    pens.PURE['yellow'],
+    pens.PURE['black'],
+]
 
-#kPenMap = [pens.PURE['black'],
-#           pens.PURE['red'],
-#           pens.PURE['green'],
-#           pens.PURE['blue'],
-#           pens.PURE['cyan'],
-#           pens.PURE['magenta'],
-#           pens.PURE['yellow'],
-#           ]
+kBluesGreens = [
+    pens.SARASA['light blue'],
+    pens.SARASA['blue'],
+    pens.SARASA['cobalt'],
+    pens.SARASA['forest green'],
+    pens.SARASA['kelly green'],
+    pens.PIGMA_MICRON['yellow'],
+    pens.SARASA['mahogany'],
+    pens.SARASA['black'],
+    ]
 
-kImageMargin = kCircleDiameter / 2
+kBluesBrowns = [
+    pens.SARASA['light blue'],
+    pens.SARASA['blue'],
+    pens.SARASA['orange'],
+    pens.SARASA['light green'],
+    pens.SARASA['violet'],
+    pens.SARASA['red'],
+    pens.SARASA['mahogany'],
+    pens.SARASA['black'],
+    ]
+
+kPenMap = kBluesBrowns
+
+kImageMargin = kCircleDiameter
 kBlur = kCircleDiameter
 
 random.seed(0)
@@ -78,14 +90,24 @@ class Circles(program.Program):
     difference = inv_color - inv_pen * scale
     return (np.sum(difference ** 2), scale)
 
-  def _LeastSquareScore(self, inv_color, inv_pen):
-    a = np.sum(np.power(inv_pen, 2))
-    b = np.sum(np.multiply(inv_color, inv_pen))
-    intercept = b / 2 * a
-    if intercept < 0:
-      return (float('inf'), intercept)
+  def _WeightedNaiveScore(self, inv_color, inv_pen):
+    weights = np.array((0.3, 0.59, 0.11), dtype=np.float)
+    scale = None
+    for c, p in zip(inv_color, inv_pen):
+      # lol division by zero
+      if c == 0 and p == 0:
+        continue
+      elif c == 0 and p != 0:
+        scale = 0
+      elif c != 0 and p == 0:
+        continue
+      else:
+        this_scale = c / p
+        if scale is None or this_scale < scale:
+          scale = this_scale
 
-    return (a * intercept ** 2 - b * intercept + np.sum(inv_color), intercept)
+    difference = np.multiply((inv_color - inv_pen), weights)
+    return (np.sum(difference ** 2), scale)
 
   def _BestColor(self, inv_color):
     best_result = (None, None)
@@ -94,7 +116,8 @@ class Circles(program.Program):
     for pen_index in range(len(self._pen_map)):
       inv_pen = 255 - np.array(self._pen_map[pen_index])
 
-      this_value, scale = self._NaiveScore(inv_color, inv_pen)
+      #this_value, scale = self._NaiveScore(inv_color, inv_pen)
+      this_value, scale = self._WeightedNaiveScore(inv_color, inv_pen)
 
       if best_value is None or this_value < best_value:
         best_result = (pen_index, scale)
@@ -102,16 +125,110 @@ class Circles(program.Program):
 
     return best_result
 
-  def _ProcessPosition(self, position):
+  def _ProcessInRgb(self, position, value):
     circles_here = deque()
+    inv_color = 255 - value
+    for plan_scale in self._circle_plan:
+      pen, scale = self._BestColor(inv_color)
+      actual_scale = min(plan_scale, scale)
+      scaled_color = actual_scale * (255 - np.array(self._pen_map[pen]))
+      inv_color = inv_color - scaled_color
+
+      if scale is None:
+        break
+      diameter = self._diameter * actual_scale
+      if diameter < .2 / plotter.kResolution:
+        break
+
+      start_angle = 0
+      if self._random_rotation:
+        start_angle = random.random() * math.pi * 2
+      circles_here.append(
+          plotter.Arc(plotter.Point(position[0], position[1]),
+            diameter,
+            start_angle,
+            2 * math.pi,
+            self._chord,
+            pen))
+    return circles_here
+
+  def _CIELabScore(self, value):
+    best_result = (None, None)
+    max_diff = 30
+    best_value = max_diff
+
+    for pen_index in range(len(self._pen_map)):
+      color_scaled = np.array([[value]], dtype=np.float32) * (1 / 255.0)
+      color_lab = cv2.cvtColor(color_scaled, cv2.COLOR_RGB2Lab)[0][0]
+      color_labcolor = LabColor(color_lab[0], color_lab[1], color_lab[2])
+
+      difference = delta_e_cmc(self._pen_labcolor[pen_index], color_labcolor)
+
+      if best_value is None or difference < best_value:
+        best_value = difference
+        score = 0
+        score += max((max_diff - difference) / max_diff, 0) / 2
+        score += min(color_labcolor.lab_l / self._pen_labcolor[pen_index].lab_l, 1) / 2
+        best_result = (pen_index, score)
+  
+    if best_result[0] == len(self._pen_map) - 1:
+      return (None, None)
+    return best_result
+
+  def _ProcessInCIELab(self, position, value):
+    circles_here = deque()
+
+    working_value = np.zeros(3, np.int32)
+    np.copyto(working_value, value)
+
+    for i in range(len(self._circle_plan)):
+      result = self._CIELabScore(working_value)
+      if result[0] is None:
+        return circles_here
+
+      circle_size = self._circle_plan[i] * result[1]
+
+      inv_color = (255 - np.array(self._pen_map[result[0]]))
+      working_value = np.minimum(working_value + inv_color, 255)
+      
+      diameter = (self._diameter * circle_size)
+      if diameter <= 0:
+        break
+
+      start_angle = 0
+      if self._random_rotation:
+        start_angle = random.random() * math.pi * 2
+      circles_here.append(
+          plotter.Arc(plotter.Point(position[0], position[1]),
+            diameter,
+            start_angle,
+            2 * math.pi,
+            self._chord,
+            result[0]))
+
+      start_angle = 0
+      if self._random_rotation:
+        start_angle = random.random() * math.pi * 2
+      circles_here.append(
+          plotter.Arc(plotter.Point(position[0], position[1]),
+            diameter / 2,
+            start_angle,
+            2 * math.pi,
+            self._chord,
+            result[0]))
+
+    return circles_here
+
+  def _ProcessPosition(self, position):
 
     image_position = self.GetImagePosition(position)
     if image_position is None:
-      return circles_here
+      return deque()
 
     value = self._filter_image[int(image_position[1]), int(image_position[0])]
 
-    if type(value) == np.uint8:  # Grayscale image.
+    if self._conv_type == 'grayscale':  # Grayscale image.
+      circles_here = deque()
       for i in range(1, len(self._circle_plan)):
         upper_thresh = self._circle_plan[i - 1][0]
         lower_thresh = self._circle_plan[i][0]
@@ -131,34 +248,17 @@ class Circles(program.Program):
               2 * math.pi,
               self._chord,
               0))
-    else:  # Color image
-      working_value = np.copy(value)
-      inv_color = 255 - value
-      #print('one circle')
-      for i in range(1, len(self._circle_plan)):
-        pen, scale = self._BestColor(inv_color)
-        actual_scale = min(self._circle_plan[i][1], scale)
-        scaled_color = actual_scale * (255 - np.array(self._pen_map[pen]))
-        inv_color = inv_color - scaled_color
+      return circles_here
+    elif self._conv_type == 'color':
+      return self._ProcessInRgb(position, value)
+    elif self._conv_type == 'cielab':
+      self._pen_labcolor = []
+      for pen in self._pen_map:
+        pen_scaled = np.array([[pen]], dtype=np.float32) * (1 / 255.0)
+        pen_lab = cv2.cvtColor(pen_scaled, cv2.COLOR_RGB2Lab)[0][0]
+        self._pen_labcolor.append(LabColor(pen_lab[0], pen_lab[1], pen_lab[2]))
 
-        if scale is None:
-          break
-        diameter = self._diameter * actual_scale
-        if diameter < .2 / plotter.kResolution:
-          break;
-
-        start_angle = 0
-        if self._random_rotation:
-          start_angle = random.random() * math.pi * 2
-        circles_here.append(
-            plotter.Arc(plotter.Point(position[0], position[1]),
-              diameter,
-              start_angle,
-              2 * math.pi,
-              self._chord,
-              pen))
-
-    return circles_here
+      return self._ProcessInCIELab(position, value)
 
   def _GetNextCenter(self, center, start):
     if self._pattern == 'grid':
@@ -206,8 +306,8 @@ class Circles(program.Program):
       assert False, 'Unknown pattern.'
     return center
 
-  def FillImageWithCircles(self, image, pattern, diameter, chord, plan,
-      random_rotation, pen_map):
+  def FillImageWithCircles(self, conv_type, image, pattern, diameter, chord,
+      plan, random_rotation, pen_map):
     self._filter_image = self._InitializeImage(image, kImageMargin, kBlur)
 
     self._pattern = pattern
@@ -216,6 +316,7 @@ class Circles(program.Program):
     self._circle_plan = plan
     self._random_rotation = random_rotation
     self._pen_map = pen_map
+    self._conv_type = conv_type
 
     # Set up start of circle pattern.
     # Find out how many circles we can put in the picture
@@ -256,21 +357,46 @@ class Circles(program.Program):
     return shapes
 
 def main():
+  # Read conversion type: grayscale or color.
+  conv_type = sys.argv[1]
   # Read input image.
-  source_name = sys.argv[1]
-  image = cv2.imread(source_name)
-  #image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-  image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+  source_name = sys.argv[2]
+
+  if conv_type == 'grayscale':
+    image = cv2.imread(source_name)
+    image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+    no_bg_white = image[image < 240]
+    quantiles = [ i / 4 for i in range(5) ]
+    thresholds = np.flip(np.unique(np.quantile(no_bg_white, quantiles)))
+    print('Image thresholds: %s' % str(thresholds))
+
+    plan = [ z for z in zip(thresholds, kGrayscaleCirclePlan) ]
+    print(plan)
+    pen_map = [pens.SARASA['black']]
+  elif conv_type == 'color':
+    image = cv2.imread(source_name)
+    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    plan = kColorCirclePlan
+    pen_map = kPenMap
+  elif conv_type == 'cielab':
+    image = cv2.imread(source_name)
+    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    plan = kColorCirclePlan
+    pen_map = kPenMap + [pens.PURE['white']]
+  else:
+    print('Unknown conversion type %s' % conv_type)
+    return -1
 
   circle_maker = Circles(kPageSize)
-  circles = circle_maker.FillImageWithCircles(image, kPattern, kCircleDiameter,
-      kChord, kCirclePlan, kRandomRotation, kPenMap)
+  circles = circle_maker.FillImageWithCircles(conv_type, image, kPattern,
+      kCircleDiameter, kChord, plan, kRandomRotation, pen_map)
 
   print('Contains %d "circles".' % len(circles))
-  if not plotter.ShowPreview(circles, kPageSize, kPenMap):
+  if not plotter.ShowPreview(circles, kPageSize, pen_map):
     return 0
 
-  with open(sys.argv[2], 'wb') as dest:
+  with open(sys.argv[3], 'wb') as dest:
     plotter.SortAllAndWrite(dest, circles, 0.3, kPageSize)
 
 if __name__ == "__main__":

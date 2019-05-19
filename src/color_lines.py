@@ -10,7 +10,7 @@ import lib.pens as pens
 import lib.plotter as plotter
 import lib.program as program
 
-kPageSize = 'tabloid'  # letter or tabloid
+kPageSize = 'letter'  # letter or tabloid
 
 kLineSpacing = int(3 / plotter.kResolution)
 kLineSpacingVariance = 0 / plotter.kResolution

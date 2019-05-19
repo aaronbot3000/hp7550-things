@@ -10,66 +10,66 @@ import lib.plotter as plotter
 import lib.program as program
 import lib.pens as pens
 
-kPageSize = 'tabloid'  # letter or tabloid
+kPageSize = 'letter'  # letter or tabloid
 
-kLineSpacing = int(3 / plotter.kResolution)
+kLineSpacing = int(2.5 / plotter.kResolution)
 kLineSpacingVariance = 0 / plotter.kResolution
 
-kLineWidth = 5 / plotter.kResolution
+kLineWidth = 4 / plotter.kResolution
 kLineWidthVariance = 0 / plotter.kResolution
 
 kImageMargin = kLineWidth / 2 + kLineWidthVariance
 
-kBlur = int(3 / plotter.kResolution)
+kBlur = int(1.5 / plotter.kResolution)
 
-pattern = 'swoopy'
+pattern = 'circles'
 
 if pattern == 'jagged':
   kOffset = 0.5
   kAngles = [ x * math.pi / 12 for x in range(12) ]
   kLineMap = (
-      (kAngles[3], (170, 240)),
-      (kAngles[7], (110, 190)),
-      (kAngles[11], (100, 140)),
-      (kAngles[0], (60, 110)),
-      (kAngles[2], (40, 70)),
-      (kAngles[4], (0, 50)),
+      kAngles[3],
+      kAngles[7],
+      kAngles[11],
+      kAngles[0],
+      kAngles[2],
+      kAngles[4],
   )
 
 if pattern == 'circles':
   kOffset = 0.5
   kAngles = [ x * math.pi / 6 for x in range(12) ]
   kLineMap = (
-      (kAngles[1], (170, 240)),
-      (kAngles[5], (110, 190)),
-      (kAngles[2], (100, 140)),
-      (kAngles[0], (60, 110)),
-      (kAngles[4], (40, 70)),
-      (kAngles[3], (0, 50)),
+      kAngles[1],
+      kAngles[5],
+      kAngles[2],
+      kAngles[0],
+      kAngles[4],
+      kAngles[3],
   )
 
 if pattern == 'swoopy':
   kOffset = 0.
   kAngles = [ x * math.pi / 20 for x in range(12) ]
   kLineMap = (
-      (kAngles[3], (170, 240)),
-      (kAngles[4], (110, 190)),
-      (kAngles[5], (100, 140)),
-      (kAngles[8], (60, 110)),
-      (kAngles[9], (40, 70)),
-      (kAngles[10], (0, 50)),
+      kAngles[3],
+      kAngles[4],
+      kAngles[5],
+      kAngles[8],
+      kAngles[9],
+      kAngles[10],
   )
 
 if pattern == 'evenhex':
   kOffset = 0
   kAngles = [ x * math.pi / 5 for x in range(12) ]
   kLineMap = (
-      (kAngles[0], (170, 240)),
-      (kAngles[1], (110, 190)),
-      (kAngles[2], (100, 140)),
-      (kAngles[3], (60, 110)),
-      (kAngles[4], (40, 70)),
-      (kAngles[5], (0, 50)),
+      kAngles[0],
+      kAngles[1],
+      kAngles[2],
+      kAngles[3],
+      kAngles[4],
+      kAngles[5],
   )
 
 kPen = 0
@@ -184,9 +184,19 @@ class Hatch(program.Program):
     num_lines = int((longest_dimension / 2) / self._line_spacing) + 1
 
     shapes = deque()
-    for angle, color_range in line_map:
+    
+    levels = len(line_map)
+
+    no_bg_white = self._filter_image[self._filter_image < 240]
+    # Drop the uppermost and lowermost quantiles.
+    quantiles = [ i / (levels + 2) for i in range(1, levels + 2) ]
+    thresholds = np.flip(np.unique(np.quantile(no_bg_white, quantiles)))
+    print('Image thresholds: %s' % str(thresholds))
+
+    for i in range(min(levels, len(thresholds) - 1)):
+      color_range = (thresholds[i + 1], thresholds[i])
       shapes.extend(
-          self._DrawAllDashLines(center, angle, num_lines, color_range, pen))
+          self._DrawAllDashLines(center, line_map[i], num_lines, color_range, pen))
 
     return shapes
 

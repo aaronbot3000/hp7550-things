@@ -23,17 +23,25 @@ kTabloidX = int(15.684 * 1016)  # points
 kTabloidY = 10 * 1016  # points
 
 kPreviewAlpha = 255
-kLineWidth = 3
+kLetterLineWidth = 2
+kTabloidLineWidth = 1
 kLineType = cv2.LINE_AA
 
 
 class Point(object):
-  def __init__(self, x, y):
-    self.x = int(x)
-    self.y = int(y)
+  def __init__(self, x, y=None):
+    if y == None:
+      self.x = int(x[0])
+      self.y = int(x[1])
+    else:
+      self.x = int(x)
+      self.y = int(y)
 
   def __setattr__(self, name, value):
     super().__setattr__(name, int(value))
+
+  def __str__(self):
+    return 'Point: %d, %d' % (self.x, self.y)
 
 
 class PenState(object):
@@ -187,7 +195,7 @@ class Label(Shape):
   def Chainable(self):
     return False
 
-  def DrawIn(self, image, pen_map, scale):
+  def DrawIn(self, image, pen_map, scale, line_width):
     pass
 
 
@@ -196,17 +204,18 @@ class Arc(Shape):
     """Draw an arc or circle.
 
     start: angle it starts the arc. negative is ok
-      0 degrees is positive X axis, counterclockwise.. Enter None for random.
+      0 degrees is positive X axis, counterclockwise.
+    chord: length of each arc approximation line, in radians.
     """
     self._center = copy.copy(center)
     self._start = start
     self._radius = diameter / 2.0
     self._sweep = sweep
 
-    # Non integer number of chords is rounded up.
-    self._chord = None
     if chord is not None:
-      self._chord = 360 / math.ceil(360.0 / np.degrees(chord))
+      self._chord = chord
+    else:
+      self._chord = None
 
     self._forward_direction = True
     super().__init__(pen)
@@ -240,7 +249,7 @@ class Arc(Shape):
         (cx, cy, np.degrees(sweep)))
 
     if self._chord is not None:
-      outfile.write(b'%+d' % self._chord)
+      outfile.write(b'%+d' % math.ceil(np.degrees(self._chord)))
 
     pen_state.position = self.LastPoint(),
     pen_state.position_exact=False,
@@ -287,10 +296,11 @@ class Arc(Shape):
   def Chainable(self):
     return True
 
-  def DrawIn(self, image, pen_map, scale):
-    chord = 2 * math.pi / 20
+  def DrawIn(self, image, pen_map, scale, line_width):
     if self._chord is not None:
-      chord = np.radians(self._chord)
+      chord = np.degrees(self._chord)
+    else:
+      chord = 5
 
     polyline = cv2.ellipse2Poly(
         (int(self._center.x * scale), int(self._center.y * scale)),
@@ -298,12 +308,12 @@ class Arc(Shape):
         0,  # no rotation of the circle.
         int(np.degrees(self._start)),
         int(np.degrees(self._start + self._sweep)),
-        int(np.degrees(chord)))
+        int(chord))
     cv2.polylines(image,
         [polyline],
         False,
         pen_map[self._pen] + (kPreviewAlpha,),
-        thickness=kLineWidth,
+        thickness=line_width,
         lineType=kLineType)
 
 
@@ -382,7 +392,7 @@ class Polyline(Shape):
   def Chainable(self):
     return True
 
-  def DrawIn(self, image, pen_map, scale):
+  def DrawIn(self, image, pen_map, scale, line_width):
     all_points = deque()
     for point in self.Points():
       all_points.append([int(point.x * scale),
@@ -393,12 +403,13 @@ class Polyline(Shape):
                   [np_points],
                   False,
                   pen_map[self._pen] + (kPreviewAlpha,),
-                  thickness=kLineWidth,
+                  thickness=line_width,
                   lineType=kLineType)
 
 
 class ClosedPolyline(Polyline):
   def __init__(self, points, pen):
+    assert len(points) > 1, 'No single point lines.'
     self._points = []
     self._points.extend(copy.deepcopy(points))
     self._start = 0
@@ -433,6 +444,7 @@ class ClosedPolyline(Polyline):
 
 class OpenPolyline(Polyline):
   def __init__(self, points, pen):
+    assert len(points) > 1, 'No single point lines.'
     self._points = deque()
     self._points.extend(copy.deepcopy(points))
     self._forward_direction = True
@@ -608,17 +620,19 @@ def SortAllAndWrite(outfile, mixed_shapes, merge_dist, page_size, reorder=True):
   WriteAllShapes(outfile, all_sorted, merge_dist, page_size)
 
 PREVIEW_X = 1200  # pixels
-RENDER_X = 3600  # pixels
+RENDER_X = 2400  # pixels
 
 def ShowPreview(mixed_shapes, page_size, pen_map):
   if page_size == 'letter':
     scale = RENDER_X / kLetterX
     render_y = int(kLetterY * scale)
     preview_y = int(kLetterY * PREVIEW_X / kLetterX)
+    line_width = kLetterLineWidth
   elif page_size == 'tabloid':
     scale = RENDER_X / kTabloidX
     render_y = int(kTabloidY * scale)
     preview_y = int(kTabloidY * PREVIEW_X / kTabloidX)
+    line_width = kTabloidLineWidth
   else:
     assert 'Bruh you typoed page size: %s' % page_size
 
@@ -633,15 +647,19 @@ def ShowPreview(mixed_shapes, page_size, pen_map):
   color_planes = []
   print('Drawing shapes.')
   for _, shape_list in categorized_shapes.items():
-    color_planes.append(np.zeros(render_dims + (4,), np.int32))
+    color_planes.append(np.zeros(render_dims + (4,), np.uint8))
     for shape in shape_list:
-      shape.DrawIn(color_planes[-1], pen_map, scale)
+      shape.DrawIn(color_planes[-1], pen_map, scale, line_width)
 
   # Accumulate colors.
-  print('Summing images.')
   alphacount = np.zeros(render_dims + (1,))
+  temp = np.zeros(render_dims + (4,))
+  plane_count = 0
   for plane in color_planes:
-    plane_r, plane_g, plane_b, plane_a = np.dsplit(plane, 4)
+    plane_count += 1
+    print('Summing plane %d of %d.' % (plane_count, len(color_planes)))
+    np.copyto(temp, plane)
+    plane_r, plane_g, plane_b, plane_a = np.dsplit(temp, 4)
 
     np.multiply(plane_r, plane_a, out=plane_r)
     np.add(acc_r, plane_r, out=acc_r)
@@ -703,10 +721,10 @@ def ShowPreview(mixed_shapes, page_size, pen_map):
   return_value = False
   while True:
     key = cv2.waitKey(0)
-    if key == 1048586:
+    if key == 10:  # Enter
       return_value = True
       break;
-    elif key == -1 or key == 1048603 or key == 1048689:
+    elif key == -1 or key == 27 or key == 113:  # ESC or q
       break
 
   cv2.destroyAllWindows()
