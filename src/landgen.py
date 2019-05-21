@@ -36,6 +36,9 @@ kOctaves = 2
 # tall walls
 kNoiseMask = 0x6B0
 
+# less tall walls
+#kNoiseMask = 0x6B0 >> 1
+
 
 class LandGen(program.Program):
   def __init__(self, paper_type):
@@ -61,12 +64,16 @@ class LandGen(program.Program):
     if kDirection == 'landscape':
       scan_limit = self._x_limit
       step_limit = self._y_limit
+      scan_scale = self._x_limit / self._y_limit
+      step_scale = 1
     elif kDirection == 'portrait':
       scan_limit = self._y_limit
       step_limit = self._x_limit
+      scan_scale = 1
+      step_scale = self._x_limit / self._y_limit
     else:
       assert False, 'unrecognized direction %s' % kDirection
-    
+
     step_res = math.ceil(kStepRes / plotter.kResolution)
     scan_res = math.ceil(kScanRes / plotter.kResolution)
     scan_points = math.floor(scan_limit / scan_res)
@@ -82,12 +89,12 @@ class LandGen(program.Program):
         # height is in points.
         base_height = step * step_res
 
-        normal_scan_pos = scan / scan_points
-        normal_step_pos = step / step_points
+        normal_scan_pos = scan / scan_points * scan_scale
+        normal_step_pos = step / step_points * step_scale
         add_noise = self.NoiseFunc(normal_scan_pos * kNoiseScanZoom,
                                    normal_step_pos * kNoiseStepZoom)
 
-        rise = math.floor(step + (int(kNoiseScale * add_noise) & kNoiseMask))
+        rise = int(kNoiseScale * add_noise) & kNoiseMask
         height = base_height + rise
 
         prev = scan - 1
