@@ -7,6 +7,16 @@ class Program(object):
   def __init__(self, paper_type):
     self._paper_type = paper_type
 
+    if paper_type == 'tabloid':
+      self._x_limit = plotter.kTabloidX
+      self._y_limit = plotter.kTabloidY
+    elif paper_type == 'letter':
+      self._x_limit = plotter.kLetterX
+      self._y_limit = plotter.kLetterY
+    else:
+      assert False, 'unrecognized paper %s' % self._paper_type
+
+
   def _InitializeImage(self, image, margin, blur):
     """Common image processing routine.
 
@@ -40,18 +50,11 @@ class Program(object):
     image = np.flip(image, 1)
     self._image_dim = np.array((len(image[0]), len(image)), np.int32)
 
-    if self._paper_type == 'tabloid':
-      x_limit = plotter.kTabloidX
-      y_limit = plotter.kTabloidY
-    else:
-      x_limit = plotter.kLetterX
-      y_limit = plotter.kLetterY
-
     # Center and get image scaling.
-    self._image_to_plot = min((x_limit - margin) / self._image_dim[0],
-                              (y_limit - margin) / self._image_dim[1])
+    self._image_to_plot = min((self._x_limit - margin) / self._image_dim[0],
+                              (self._y_limit - margin) / self._image_dim[1])
     self._plot_to_image = 1 / self._image_to_plot
-    self._image_origin = ((np.array((x_limit, y_limit), np.int32) -
+    self._image_origin = ((np.array((self._x_limit, self._y_limit), np.int32) -
                           self._image_dim * self._image_to_plot) / 2)
 
     self._image_dim_plot = self._image_dim * self._image_to_plot
