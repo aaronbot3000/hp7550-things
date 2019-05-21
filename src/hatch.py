@@ -25,13 +25,13 @@ class Hatch(program.Program):
     super().__init__(paper_type)
 
   def _PlaceHatches(self, threshold):
-    shapes = []
+    shapes = deque()
 
     threshold_image = np.less(self._filter_image, threshold)
     possible_locations = np.nonzero(threshold_image)
     num_locations = len(possible_locations[0])
 
-    for i in range(min(num_locations / 2, 1000)):
+    for i in range(min(int(num_locations / 2), 5000)):
       i = random.randint(0, num_locations - 1)
 
       diameter = max(kMaxCircleDiameter * random.random(), 1);
