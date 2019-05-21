@@ -13,7 +13,7 @@ import math
 import numpy as np
 import sys
 
-kResolution = 0.025  # mm/quanta
+kResolution = 0.025  # mm / point
 
 kLetterX = 10 * 1016  # points
 kLetterY = int(183.5 / kResolution)  # points
@@ -622,7 +622,7 @@ def SortAllAndWrite(outfile, mixed_shapes, merge_dist, page_size, reorder=True):
 PREVIEW_X = 1200  # pixels
 RENDER_X = 2400  # pixels
 
-def ShowPreview(mixed_shapes, page_size, pen_map):
+def ShowPreview(mixed_shapes, page_size, pen_map, override_line_width=None):
   if page_size == 'letter':
     scale = RENDER_X / kLetterX
     render_y = int(kLetterY * scale)
@@ -635,6 +635,9 @@ def ShowPreview(mixed_shapes, page_size, pen_map):
     line_width = kTabloidLineWidth
   else:
     assert 'Bruh you typoed page size: %s' % page_size
+
+  if override_line_width is not None:
+    line_width = override_line_width
 
   # Numpy arrays are row, col notation, or y, x. Everything else is
   # x, y, so the y and x are reversed.
