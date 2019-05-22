@@ -13,13 +13,13 @@ import lib.pens as pens
 import lib.plotter as plotter
 
 kPaperType = 'letter'
-kDirection = 'portrait'
+kDirection = 'landscape'
 
 kStepRes = 0.6 # mm
-kScanRes = 0.6 # mm
+kScanRes = 0.4 # mm
 
-kNoiseScanZoom = 2
-kNoiseStepZoom = 4
+kNoiseScanZoom = 3
+kNoiseStepZoom = 5
 kNoiseScale = 2048
 kNoiseType = 'perlin'  # simplex or perlin
 kOctaves = 2
@@ -31,13 +31,16 @@ kOctaves = 2
 #kNoiseMask = 0x1B0
 
 # plains and plateaus
-#kNoiseMask = 0x2F0
+kNoiseMask = 0x2F0
 
 # tall walls
-kNoiseMask = 0x6B0
+#kNoiseMask = 0x6B0
 
 # less tall walls
 #kNoiseMask = 0x6B0 >> 1
+
+kFloor = 200
+kFloorDecimator = 2
 
 
 class LandGen(program.Program):
@@ -85,6 +88,7 @@ class LandGen(program.Program):
         print('On step %d of %d.' % (step, step_points))
       pen_up = False
       points = deque()
+      floor_points = deque()
       for scan in range(scan_points):
         # height is in points.
         base_height = step * step_res
@@ -95,6 +99,8 @@ class LandGen(program.Program):
                                    normal_step_pos * kNoiseStepZoom)
 
         rise = int(kNoiseScale * add_noise) & kNoiseMask
+        rise = max(kFloor, rise)
+
         height = base_height + rise
 
         prev = scan - 1
@@ -110,6 +116,10 @@ class LandGen(program.Program):
             self.AppendPoint(points, scan * scan_res, step_limit)
             all_lines.append(plotter.OpenPolyline(points, 0))
           points = deque()
+          if floor_points:
+            if len(floor_points) > 1:
+              all_lines.append(plotter.OpenPolyline(floor_points, 1))
+            floor_points = deque()
         elif height <= view_line[scan]:
           if not points and scan > 0:
             if view_line[prev] >= step_limit and view_line[scan] < step_limit:
@@ -119,12 +129,31 @@ class LandGen(program.Program):
             self.AppendPoint(points, scan * scan_res, view_line[scan])
             all_lines.append(plotter.OpenPolyline(points, 0))
           points = deque()
+          if floor_points:
+            if len(floor_points) > 1:
+              all_lines.append(plotter.OpenPolyline(floor_points, 1))
+            floor_points = deque()
         else:
-          if not points and scan > 0:
-            self.AppendPoint(points, prev * scan_res, view_line[prev])
+          if rise == kFloor:
+            if points:
+              self.AppendPoint(points, prev * scan_res, height)
+              all_lines.append(plotter.OpenPolyline(points, 0))
+              points = deque()
+            if (step % kFloorDecimator) == 0:
+              self.AppendPoint(floor_points, prev * scan_res, height)
+          else:
+            if floor_points:
+              if len(floor_points) > 1:
+                all_lines.append(plotter.OpenPolyline(floor_points, 1))
+              floor_points = deque()
 
-          self.AppendPoint(points, scan * scan_res, height)
+            if not points and scan > 0:
+              self.AppendPoint(points, prev * scan_res, view_line[prev])
+            self.AppendPoint(points, scan * scan_res, height)
           view_line[scan] = height
+
+      if len(floor_points) > 1:
+        all_lines.append(plotter.OpenPolyline(floor_points, 1))
 
       if len(points) > 1:
         all_lines.append(plotter.OpenPolyline(points, 0))
@@ -136,9 +165,9 @@ def main():
 
   print('Line segments: %d' % len(shapes))
 
-  pen_map = [pens.SARASA['black'], ]
+  pen_map = [pens.SARASA['forest green'], pens.SARASA['light blue'], ]
   if not plotter.ShowPreview(shapes, kPaperType, pen_map,
-      override_line_width=1):
+      override_line_width=2):
     return 0
 
   with open(sys.argv[1], 'wb') as dest:
