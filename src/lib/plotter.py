@@ -1,6 +1,7 @@
 """Plotter tools.
 
 For the HPGL plotters, X axis is always the longer dimension of the page.
+Origin is the bottom left corner.
 """
 from collections import deque
 from collections import namedtuple
@@ -27,6 +28,8 @@ kLetterLineWidth = 2
 kTabloidLineWidth = 1
 kLineType = cv2.LINE_AA
 
+kMaxSlopeDiff = 1
+
 
 class Point(object):
   def __init__(self, x, y=None):
@@ -42,6 +45,9 @@ class Point(object):
 
   def __str__(self):
     return 'Point: %d, %d' % (self.x, self.y)
+
+  def __repr__(self):
+    return self.__str__()
 
 
 class PenState(object):
@@ -322,6 +328,52 @@ class Polyline(Shape):
   def Points(self):
     """Yield points."""
 
+  def _Diff(self, p2, p1, n):
+    xp2 = p1.x - p2.x
+    yp2 = p1.y - p2.y
+
+    xp1 = n.x - p1.x
+    yp1 = n.y - p1.y
+
+    xn = n.x - p2.x
+    yn = n.y - p2.y
+
+    # Direction changed.
+    if np.sign(xp2) != np.sign(xp1) or np.sign(yp2) != np.sign(yp1):
+      return kMaxSlopeDiff + 1
+
+    # Horizontal or vertical line or dot.
+    if xp2 == 0 or yp2 == 0:
+      return 0
+
+    diff = abs((xn / xp2 * yp2) - yn)
+    return diff
+
+  def _CopyAndDedupe(self, origin):
+    if len(origin) <= 2:
+      return copy.deepcopy(origin)
+
+    prev2 = origin[0]
+    prev1 = origin[1]
+    dest = deque()
+
+    dest.append(copy.deepcopy(prev2))
+    dest.append(copy.deepcopy(prev1))
+
+    count = 0
+    for next_point in origin:
+      count += 1
+      if count < 3:
+        continue
+      if self._Diff(prev2, prev1, next_point) < kMaxSlopeDiff:
+        dest.pop()
+        prev1 = next_point
+      else:
+        prev2 = prev1
+        prev1 = next_point
+      dest.append(copy.deepcopy(next_point))
+    return dest
+
   def _Encode(self, number):
     base = 64
 
@@ -410,10 +462,12 @@ class Polyline(Shape):
 class ClosedPolyline(Polyline):
   def __init__(self, points, pen):
     assert len(points) > 1, 'No single point lines.'
-    self._points = []
-    self._points.extend(copy.deepcopy(points))
+    self._points = self._CopyAndDedupe(points)
     self._start = 0
     super().__init__(pen)
+
+  def __str__(self):
+    return str(self._points)
 
   def NumberOfRtreeIdsConsumed(self):
     return len(self._points)
@@ -446,9 +500,12 @@ class OpenPolyline(Polyline):
   def __init__(self, points, pen):
     assert len(points) > 1, 'No single point lines.'
     self._points = deque()
-    self._points.extend(copy.deepcopy(points))
+    self._points = self._CopyAndDedupe(points)
     self._forward_direction = True
     super().__init__(pen)
+
+  def __str__(self):
+    return str(self._points)
 
   def NumberOfRtreeIdsConsumed(self):
     return 2
