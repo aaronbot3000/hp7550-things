@@ -362,6 +362,8 @@ class Polyline(Shape):
 
     count = 0
     for next_point in origin:
+      # lists don't have popleft and deques don't have slices, and I want to
+      # support both. Such is life.
       count += 1
       if count < 3:
         continue
